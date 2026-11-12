@@ -10,24 +10,44 @@ from astroquery.simbad import SimbadClass
 J2000 = Time(51544.5, format="mjd", scale="tt")    # don't use Time("J2000"): misparsed on some versions
 
 # Fallbacks so the challenge targets always work, even offline.
-# (ra, dec) J2000 in degrees, proper motion (pmra*cos(dec), pmdec) in mas/yr.
+# (ra, dec) in degrees, proper motion (pmra*cos(dec), pmdec) in mas/yr, and the EPOCH (year)
+# the position refers to. The epoch matters for fast movers: WISE 0855's position is the WISE
+# measurement from ~2010.4 (its name WISE J085510.83-071442.5 encodes it), not a year-2000
+# position - treating it as 2000 put the prediction ~85" (14 pixels) too far west in 2026.
+# The Epsilon Indi B epoch has not been checked against a catalogue.
 KNOWN = {
-    "barnard's star": (269.452083, 4.693391, -801.6, 10362.4),
-    "wise 0855":      (133.795129, -7.245147, -8118.0, 680.0),
-    "epsilon indi b": (331.04383, -56.78269, 3966.7, -2536.2),
-    "rw aur":         (76.95641, 30.40142, 0.0, 0.0),
-    "rw aurigae":     (76.95641, 30.40142, 0.0, 0.0),
-    "r dra":          (248.16738, 66.75503, 0.0, 0.0),
-    "r draconis":     (248.16738, 66.75503, 0.0, 0.0),
+    "barnard's star": (269.452083, 4.693391, -801.6, 10362.4, 2000.0),
+    "wise 0855":      (133.795129, -7.245147, -8118.0, 680.0, 2010.4),
+    "epsilon indi b": (331.04383, -56.78269, 3966.7, -2536.2, 2000.0),
+    "rw aur":         (76.95641, 30.40142, 0.0, 0.0, 2000.0),
+    "r dra":          (248.16738, 66.75503, 0.0, 0.0, 2000.0),
 }
+ALIASES = {
+    "barnard": "barnard's star", "barnards star": "barnard's star", "gj 699": "barnard's star",
+    "wise j085510.83-071442.5": "wise 0855", "wise j0855-0714": "wise 0855", "wise 0855-0714": "wise 0855",
+    "eps ind b": "epsilon indi b", "eps indi b": "epsilon indi b", "epsilon indi ba": "epsilon indi b",
+    "rw aurigae": "rw aur", "r draconis": "r dra",
+}
+MATCH_RADIUS = 10 * u.arcsec     # typed coordinates this close to a KNOWN target get its motion
+
+
+def known_target(name):
+    """Name -> KNOWN key, or None."""
+    key = " ".join(name.strip().lower().split())
+    key = ALIASES.get(key, key)
+    return key if key in KNOWN else None
+
+
 SIMBAD_SERVERS = ["simbad.harvard.edu", "simbad.cds.unistra.fr"]   # Harvard first: CDS is blocked for us
 
 
-def make_coord(ra, dec, pmra=None, pmdec=None):
-    """SkyCoord at epoch J2000; carries proper motion if it is known and non-zero."""
+def make_coord(ra, dec, pmra=None, pmdec=None, epoch=2000.0):
+    """SkyCoord whose position refers to the year `epoch` (default 2000.0);
+    carries proper motion if it is known and non-zero."""
     if pmra is None or pmdec is None or (pmra == 0 and pmdec == 0):
         return SkyCoord(ra * u.deg, dec * u.deg)
-    return SkyCoord(ra * u.deg, dec * u.deg, obstime=J2000,
+    obstime = J2000 if epoch == 2000.0 else Time(epoch, format="jyear")
+    return SkyCoord(ra * u.deg, dec * u.deg, obstime=obstime,
                     pm_ra_cosdec=pmra * u.mas / u.yr, pm_dec=pmdec * u.mas / u.yr)
 
 
@@ -60,7 +80,11 @@ def _num(v):
 
 
 def resolve_name(name):
-    """Name -> SkyCoord. SIMBAD (Harvard, then CDS), built-in list, then Sesame."""
+    """Name -> SkyCoord. The challenge targets come from KNOWN (position, motion and epoch
+    checked); other names from SIMBAD (Harvard, then CDS), then Sesame."""
+    key = known_target(name)
+    if key:
+        return make_coord(*KNOWN[key])
     for server in SIMBAD_SERVERS:
         try:
             r = _simbad_for(server).query_object(name)
@@ -69,15 +93,23 @@ def resolve_name(name):
                                   _num(r["pmra"][0]), _num(r["pmdec"][0]))
         except Exception as e:
             print(f"  SIMBAD {server} failed: {type(e).__name__}")
-    key = name.strip().lower()
-    if key in KNOWN:
-        print("  using built-in position + proper motion")
-        return make_coord(*KNOWN[key])
     try:
         return SkyCoord.from_name(name)          # position only, no proper motion
     except Exception as e:
         print(f"  Sesame failed: {type(e).__name__}")
     raise ValueError(f"Could not resolve name: {name!r}")
+
+
+def attach_known_motion(coord):
+    """Typed coordinates within MATCH_RADIUS of a KNOWN target -> that target, with its
+    proper motion and epoch (typed coordinates carry no motion by themselves)."""
+    for key, row in KNOWN.items():
+        if row[2] == 0 and row[3] == 0:
+            continue
+        if coord.separation(SkyCoord(row[0] * u.deg, row[1] * u.deg)) < MATCH_RADIUS:
+            print(f"  coordinates match {key!r}: using its proper motion (epoch {row[4]})")
+            return make_coord(*row)
+    return coord
 
 
 def parse_target(text):
@@ -86,10 +118,10 @@ def parse_target(text):
     text = text.strip()
     if re.fullmatch(r"[+-]?\d+(\.\d*)?[\s,]+[+-]?\d+(\.\d*)?", text):     # two plain numbers
         ra, dec = re.split(r"[\s,]+", text)
-        return SkyCoord(float(ra), float(dec), unit="deg")
+        return attach_known_motion(SkyCoord(float(ra), float(dec), unit="deg"))
     if text[:1].isdigit():                       # don't test for h/m/s/d: names contain them
         try:
-            return SkyCoord(text, unit=(u.hourangle, u.deg))
+            return attach_known_motion(SkyCoord(text, unit=(u.hourangle, u.deg)))
         except ValueError:
             pass                                 # e.g. "2MASS J0855..." is a name
     return resolve_name(text)

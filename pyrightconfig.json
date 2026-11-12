@@ -1,0 +1,9 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "exclude": [".venv", "cache", "out"],
+  "typeCheckingMode": "standard",
+  "reportAttributeAccessIssue": "warning",
+  "reportOptionalSubscript": "warning",
+  "reportArgumentType": "warning"
+}
