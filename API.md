@@ -21,7 +21,7 @@ folder so `cache/` is found. A working example is `app_example.py` (`streamlit r
 - `text`: a name ("WISE 0855"), degrees ("133.795 -7.245") or sexagesimal ("08h55m10.8s -07d14m42.5s").
 - `detector`: "D1".."D6", a combination "D5+D6", or "all".
 - `wl`: a wavelength range in micron, "4.4-4.7". With `wl`, `detector` may be `None`.
-- `fov`: picture width in arcmin. Up to 10 is served from the standard downloads.
+- `fov`: picture width in arcmin, 1 to 10 (`api.MAX_FOV`): what the standard 0.25° downloads cover.
 - `flipbook` `mode`: "normal", "difference" (each visit minus the first), "minusmean" (each visit minus the others).
 - `flipbook` `days`: 60 = one picture per visit; 7 = weekly pictures (more, noisier).
 - `picture` `kind`: "visit", "deep" (all added), "pair" (visit `a` minus visit `b`), "banddiff" (`long` minus scaled `short`), "rgb" ("D6,D3,D1" = red, green, blue).

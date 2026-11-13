@@ -105,8 +105,8 @@ def _wl(wl):
 
 def _epochs(text, detector="D2", fov=4.0, wl=None, days=60):
     """Stacked visits (memory-cached). detector may be None when wl is given."""
-    if not 1 <= fov <= 30:
-        raise ValueError("Field of view must be between 1 and 30 arcmin.")
+    if not 1 <= fov <= MAX_FOV:            # larger views would need new, bigger downloads of every frame
+        raise ValueError(f"Field of view must be between 1 and {MAX_FOV:g} arcmin.")
     wl = _wl(wl)
     det = None if (wl and not detector) else "+".join(parse_detectors(detector or "D2"))
     target, frames = _load(text)
