@@ -149,7 +149,24 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30):
     return fig
 
 
-def plot_spectrum(spec, binned, title, out_png=None, log=False):
+# Approximate centres (micron) of well-known absorption bands in cool stars and brown dwarfs.
+# For orientation only - real band shapes are broad and depend on temperature.
+MOLECULES = {"H2O": [1.4, 1.9, 2.7], "CH4": [1.65, 2.3, 3.3], "CO2": [4.26], "CO": [4.67]}
+
+
+def _mark_molecules(ax):
+    for name, wls in MOLECULES.items():
+        for wl in wls:
+            ax.axvline(wl, color=THEME["muted"], lw=0.8, ls=(0, (2, 3)), alpha=0.7)
+            ax.text(wl, 0.97, name, transform=ax.get_xaxis_transform(), rotation=90, ha="right",
+                    va="top", fontsize=7, color=THEME["muted"])
+
+
+def plot_spectrum(spec, binned, title, out_png=None, log=False, molecules=True):
+    if log == "auto":                # logarithmic only when the brightness spans > 30x
+        v = np.asarray(spec["flux_mjy"][spec["ok"]], float) if len(spec) else np.array([1.0])
+        v = v[v > 0]
+        log = len(v) > 0 and v.max() / v.min() > 30
     """Spectrum table (from spectrum()) + channel table (from bin_to_channels()) -> figure.
     Light/dark bands mark the six detectors. Small dots = single measurements,
     big dots joined by a line = the average in each of the 102 channels, grey x = flagged."""
@@ -187,9 +204,56 @@ def plot_spectrum(spec, binned, title, out_png=None, log=False):
         ax.plot(bad["wavelength_um"], np.full(len(bad), y0), "x", color=THEME["flag"], ms=7, mew=1.5,
                 clip_on=False, label=f"flagged, not used ({len(bad)})")
     ax.set_xlim(0.72, 5.03)
+    if molecules:
+        _mark_molecules(ax)
     ax.set_xlabel("wavelength (µm)"); ax.set_ylabel("brightness (mJy)")
     ax.set_title(title, loc="left", fontsize=12, fontweight="bold", pad=18)
     ax.legend(loc="upper left", fontsize=9, labelcolor=MUTED)
+    fig.tight_layout()
+    if out_png:
+        fig.savefig(out_png)
+        plt.close(fig)
+    return fig
+
+
+VISIT_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#6250d6"]
+
+
+def plot_spectra_visits(binned_by_visit, title, out_png=None, log="auto", molecules=True):
+    """Channel spectra of several visits on one plot -> figure. binned_by_visit is a list of
+    (label, table from bin_to_channels). Shows how the whole spectrum changed between visits."""
+    from .spectrum import BANDS_UM
+    fig, ax = plt.subplots(figsize=(10, 4.8))
+    ax.grid(axis="y", lw=1); ax.set_axisbelow(True)
+    ax.spines["left"].set_visible(False); ax.tick_params(length=0)
+    for d, (lo, hi) in BANDS_UM.items():
+        if d % 2 == 0:
+            ax.axvspan(lo, hi, color=THEME["grid"], alpha=0.35, lw=0)
+    peak = []
+    for k, (label, b) in enumerate(binned_by_visit[:len(VISIT_COLORS)]):
+        if len(b) == 0:
+            continue
+        c = VISIT_COLORS[k]
+        for d in sorted(set(b["detector"])):
+            sel = b[b["detector"] == d]
+            ax.plot(sel["wavelength_um"], sel["flux_mjy"], "-", color=c, lw=1.8,
+                    label=label if d == min(b["detector"]) else None)
+        ax.plot(b["wavelength_um"], b["flux_mjy"], "o", color=c, ms=4)
+        peak.append(np.nanmax(b["flux_mjy"]))
+    if log == "auto":                # logarithmic only when the brightness spans > 30x
+        vals = np.concatenate([np.asarray(b["flux_mjy"], float) for _, b in binned_by_visit if len(b)] or [[1]])
+        vals = vals[vals > 0]
+        log = len(vals) > 0 and vals.max() / vals.min() > 30
+    if log:
+        ax.set_yscale("log")
+    elif peak:
+        ax.set_ylim(bottom=min(0, ax.get_ylim()[0]), top=max(peak) * 1.25)
+    ax.set_xlim(0.72, 5.03)
+    if molecules:
+        _mark_molecules(ax)
+    ax.set_xlabel("wavelength (µm)"); ax.set_ylabel("brightness (mJy)")
+    ax.set_title(title, loc="left", fontsize=12, fontweight="bold")
+    ax.legend(loc="upper left", fontsize=9, labelcolor=THEME["muted"])
     fig.tight_layout()
     if out_png:
         fig.savefig(out_png)

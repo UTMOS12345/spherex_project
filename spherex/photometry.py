@@ -25,6 +25,18 @@ def wavelength_at(path, x, y):
         return float(wl.to(u.um).value), float(u.Quantity(bw).to(u.um).value)
 
 
+def wavelength_map(path):
+    """Wavelength (micron) seen by EVERY pixel of this frame -> 2D array, same shape as IMAGE.
+    Same spectral WCS (key 'W') as wavelength_at, evaluated on the whole pixel grid."""
+    with fits.open(path) as h:
+        ny, nx = h["IMAGE"].data.shape
+        w = WCS(h["IMAGE"].header, fobj=h, key="W")
+        w.sip = None
+        yy, xx = np.mgrid[:ny, :nx]
+        wl, _ = w.pixel_to_world(xx, yy)
+        return np.asarray(wl.to(u.um).value, float).reshape(ny, nx)
+
+
 def measure_frame(path, pos, r_px=2.0, sky_in=4.0, sky_out=7.0):
     """Brightness of the source at SkyCoord `pos` in one cutout file -> dict.
     Sum the pixels inside a circle of radius r_px, subtract the local sky measured in a
