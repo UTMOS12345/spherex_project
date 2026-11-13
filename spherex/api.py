@@ -257,7 +257,7 @@ def overlay_figure(text, detector="D2", fov=4.0, visit=-1, gaia=True, wise=True,
     t = Time(ep["mjd"], format="mjd")
     shape = ep["image"].shape
     center = ep["wcs"].pixel_to_world(shape[1] / 2, shape[0] / 2)
-    radius = max(0.15, fov / 60)                      # 0.15 deg circles come from the demo cache
+    radius = 0.15            # covers a 10' view (half-diagonal 0.118 deg); same circle as the demo cache
     now = at_time(target, t)
     fig, ax = _image_figure(ep["image"], ep["wcs"], "", _marker(target, ep))
     notes = {"drawn": [], "failed": []}
