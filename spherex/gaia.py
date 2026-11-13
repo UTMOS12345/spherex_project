@@ -7,7 +7,7 @@ from astropy.coordinates import SkyCoord
 from astropy.table import Table
 from astropy.time import Time
 
-from .net import with_retries
+from .net import with_retries, find_cached_cone
 
 GAIA_DIR = Path("cache/gaia")
 GAIA_EPOCH = Time(2016.0, format="jyear")        # Gaia DR3 positions are for the year 2016.0
@@ -33,9 +33,10 @@ def _from_esa(center, radius_deg):
 def gaia_stars(center, radius_deg=0.08):
     """Cone search in Gaia DR3 -> Table (source_id, ra, dec, pmra, pmdec, parallax, phot_g_mean_mag).
     Positions are for 2016.0. Saved to cache/gaia/, so each field is downloaded once."""
+    cached = find_cached_cone(GAIA_DIR, "gaia", center, radius_deg)   # any bigger saved circle works
+    if cached is not None:
+        return cached
     path = GAIA_DIR / f"gaia_{center.ra.deg:.4f}_{center.dec.deg:+.4f}_{radius_deg:.3f}.ecsv"
-    if path.exists():
-        return Table.read(path)
     last = None
     for source in (_from_irsa, _from_esa):
         try:
@@ -67,24 +68,26 @@ def gaia_overlay(center, radius_deg, t):
     return stars
 
 
-def draw_gaia(ax, stars, wcs, shape, min_pm=50, arrow_years=5):
-    """Draw Gaia stars on a matplotlib image axis.
-    Every star: small cyan circle at its position at time t.
-    Stars faster than min_pm (mas/yr): yellow circle + arrow showing where they will be
+def draw_gaia(ax, stars, wcs, shape, min_pm=50, arrow_years=5, color="cyan", fast_color="yellow",
+              marker="o"):
+    """Draw catalogue stars (Gaia, or WISE from wise.py) on a matplotlib image axis.
+    Needs columns ra_t, dec_t (deg, at time t), pmra, pmdec, pm_total (mas/yr).
+    Every star: small marker at its position at time t.
+    Stars faster than min_pm (mas/yr): bigger marker + arrow showing where they will be
     arrow_years later. Returns how many stars fell on the image."""
     ny, nx = shape
     pos = SkyCoord(stars["ra_t"] * u.deg, stars["dec_t"] * u.deg)
     x, y = wcs.world_to_pixel(pos)
     on = (x >= 0) & (x < nx) & (y >= 0) & (y < ny)
     fast = on & (np.asarray(stars["pm_total"]) >= min_pm)
-    ax.scatter(x[on & ~fast], y[on & ~fast], s=40, facecolors="none", edgecolors="cyan", lw=0.6)
-    ax.scatter(x[fast], y[fast], s=160, facecolors="none", edgecolors="yellow", lw=1.2)
+    ax.scatter(x[on & ~fast], y[on & ~fast], s=40, marker=marker, facecolors="none", edgecolors=color, lw=0.6)
+    ax.scatter(x[fast], y[fast], s=160, marker=marker, facecolors="none", edgecolors=fast_color, lw=1.2)
     for row, x0, y0 in zip(stars[fast], x[fast], y[fast]):
         # where will it be arrow_years later? (north-up grid: +RA is to the left)
         d_ra = np.nan_to_num(row["pmra"]) / 1000 * arrow_years / 3600 / np.cos(np.deg2rad(row["dec_t"]))
         d_dec = np.nan_to_num(row["pmdec"]) / 1000 * arrow_years / 3600
         x1, y1 = wcs.world_to_pixel(SkyCoord((row["ra_t"] + d_ra) * u.deg, (row["dec_t"] + d_dec) * u.deg))
         ax.annotate("", xy=(float(x1), float(y1)), xytext=(float(x0), float(y0)),
-                    arrowprops=dict(arrowstyle="->", color="yellow", lw=1.5), annotation_clip=False)
+                    arrowprops=dict(arrowstyle="->", color=fast_color, lw=1.5), annotation_clip=False)
     ax.set_xlim(-0.5, nx - 0.5); ax.set_ylim(-0.5, ny - 0.5)
     return int(on.sum())
