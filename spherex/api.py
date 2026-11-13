@@ -375,7 +375,10 @@ def _neighbour_warning(target, mjd):
     t = Time(float(mjd), format="mjd")
     pos = at_time(target, t)
     try:
-        stars = gaia_overlay(pos, 0.01, t)
+        # 0.05 deg: the cone selects on Gaia's 2016 positions, and the target itself may have
+        # moved far since (Barnard's Star: 110" by 2026). Too small a cone loses the target's
+        # own entry, and with it the brightness test below.
+        stars = gaia_overlay(pos, 0.05, t)
     except Exception:
         return None
     if not len(stars):
