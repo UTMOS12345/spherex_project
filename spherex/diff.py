@@ -36,6 +36,7 @@ def difference(epoch_a, epoch_b, match_scale=False):
     return {"image": a - scale * b, "wcs": epoch_a["wcs"], "scale": scale,
             "detector": epoch_a["detector"],
             "label": f"{epoch_a['date']} minus {epoch_b['date']}",
+            "mjd": epoch_a["mjd"], "date": epoch_a["date"],
             "mjd_a": epoch_a["mjd"], "mjd_b": epoch_b["mjd"]}
 
 
