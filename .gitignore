@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+# Downloaded SPHEREx cutouts are ~GB: keep them out of git (ship cache/ separately).
+# Cutouts committed earlier stay tracked.
+cache/cutouts/*.fits
