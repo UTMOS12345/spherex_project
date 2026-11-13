@@ -401,6 +401,13 @@ def _neighbour_warning(target, mjd):
             "wavelengths. Treat these brightnesses as upper limits.")
 
 
+SATURATED_NOTE = ("The target is saturated (too bright for SPHEREx) here: triangles are lower limits from the unsaturated wings of the star; its true brightness is higher.")
+
+
+def _join(*notes):
+    return " ".join(n for n in notes if n) or None
+
+
 def _with_warning(fig, table, warning):
     """Put a neighbour warning on the figure (bottom line) and in table.meta['warning']."""
     if warning:
@@ -418,11 +425,9 @@ def light_curve_figure(text, band=1.6, tol=0.02):
     lc = light_curve(frames, target, band, tol_um=tol)
     if len(lc) == 0:
         raise ValueError(f"No image has '{text}' at {band} ± {tol} micron. Try a wider tolerance.")
-    if not lc["ok"].any() and lc["saturated"].all():
-        raise ValueError(f"'{text}' is saturated (too bright) in every SPHEREx image at {band} micron, "
-                         "so its brightness cannot be measured there. The pictures still show it.")
     fig = plot_light_curve_simple(lc, f"{text}: brightness at {band:g} ± {tol:g} µm")
-    return _with_warning(fig, lc, _neighbour_warning(target, np.median(lc["mjd"])))
+    warning = SATURATED_NOTE if (lc["saturated"] & ~lc["ok"]).any() else None
+    return _with_warning(fig, lc, _join(warning, _neighbour_warning(target, np.median(lc["mjd"]))))
 
 
 def spectrum_figure(text, visit=-1, all_visits=False):
@@ -432,24 +437,26 @@ def spectrum_figure(text, visit=-1, all_visits=False):
     target, frames = _load(text)
     ids = sorted(set(frames["epoch"]))
     if all_visits:
-        per, tables, saturated = [], [], []
+        per, tables, specs, saturated = [], [], [], False
         for e in ids:
             sub = frames[frames["epoch"] == e]
             spec = spectrum(sub, target)
             b = bin_to_channels(spec)
-            per.append((sub["date"][0][:10], b))
-            saturated.append(len(spec) > 0 and spec["saturated"].mean() > 0.5)
+            if len(spec) and spec["saturated"].mean() > 0.5 and len(b) < 5:
+                b = b[:0]                                  # a few stray channels: show the limits instead
+                saturated = True
+            per.append((sub["date"][0][:10], b, spec))
             if len(b):
                 b = b.copy(); b["visit"] = int(e); tables.append(b)
-        if all(saturated) and max((len(b) for _, b in per), default=0) < 5:
-            raise ValueError(f"No usable spectrum for '{text}': it is saturated (too bright) in most "
-                             "images of every visit. The pictures still show it.")
-        if not tables:
-            raise ValueError(f"No usable spectrum for '{text}' in any visit (saturated, or every "
-                             "measurement has flagged pixels). The pictures still show it.")
+            if len(spec):
+                spec = spec.copy(); spec["visit"] = int(e); specs.append(spec)
+        if not specs:
+            raise ValueError(f"No spectrum could be measured for '{text}' in any visit.")
         from astropy.table import vstack
-        return _with_warning(plot_spectra_visits(per, f"{text}: spectrum of every visit"), vstack(tables),
-                             _neighbour_warning(target, np.median(frames["mjd"])))
+        table = vstack(tables) if tables else vstack(specs)          # saturated: every measurement
+        return _with_warning(plot_spectra_visits(per, f"{text}: spectrum of every visit"), table,
+                             _join(SATURATED_NOTE if saturated else None,
+                                   _neighbour_warning(target, np.median(frames["mjd"]))))
     try:
         sub = frames[frames["epoch"] == ids[visit]]
     except IndexError:
@@ -458,14 +465,13 @@ def spectrum_figure(text, visit=-1, all_visits=False):
     binned = bin_to_channels(spec)
     if len(spec) == 0:
         raise ValueError(f"No spectrum could be measured for '{text}' in that visit.")
-    mostly_saturated = spec["saturated"].mean() > 0.5
-    if len(binned) == 0 or (mostly_saturated and len(binned) < 5):
-        why = ("it is saturated (too bright) in most images of that visit "
-               f"({len(binned)} of 102 channels usable)" if mostly_saturated
-               else "every measurement has flagged pixels")
-        raise ValueError(f"No usable spectrum for '{text}': {why}. The pictures still show it.")
+    saturated = spec["saturated"].mean() > 0.5 and len(binned) < 5
+    if saturated:
+        binned = binned[:0]                                # a few stray channels: show the limits instead
     fig = plot_spectrum(spec, binned, f"{text}: spectrum, visit of {sub['date'][0][:10]}", log="auto")
-    return _with_warning(fig, binned, _neighbour_warning(target, np.median(sub["mjd"])))
+    table = binned if len(binned) else spec                # saturated: every measurement, with limits
+    return _with_warning(fig, table, _join(SATURATED_NOTE if saturated else None,
+                                           _neighbour_warning(target, np.median(sub["mjd"]))))
 
 
 # ------------------------------------------------------------------ 6. contamination flags

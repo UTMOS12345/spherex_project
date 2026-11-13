@@ -1,1 +1,1 @@
-'Barnard's Star' is saturated (too bright) in every SPHEREx image at 1.3 micron, so its brightness cannot be measured there. The pictures still show it.
+The target is saturated (too bright for SPHEREx) here: triangles are lower limits from the unsaturated wings of the star; its true brightness is higher.

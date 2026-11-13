@@ -1,16 +1,16 @@
-"""Make every result for every challenge target, or say why it is missing.
+"""Make every result for every challenge target - always a real picture, never a placeholder.
 
-    python make_gallery.py                 # from cache/ only (demo mode: no downloads)
+    python make_gallery.py                 # from cache/; downloads only what a product cannot do without
     python make_gallery.py --only "RW Aur"
-    python make_gallery.py --download      # also download missing frames (slow: ~9 s per frame)
+    python make_gallery.py --download      # download ALL missing frames first (slow: ~9 s per frame)
 
-For each target, demo/<target>/ gets one file per product below. A product that cannot be
-made gets a placeholder picture instead, saying either
-    NOT POSSIBLE  - e.g. the star is saturated, or SPHEREx has no such images, or
-    POSSIBLE      - the images exist at IRSA but are not downloaded yet (how many).
-A product made from only part of the images is marked PARTIAL (k of n frames).
-demo/STATUS.md lists everything; demo/index.html shows it all in a browser.
-Run prepare_demo.py first (it makes flipbook, difference, overlay, light curve, spectrum).
+For each target, demo/<target>/ gets one file per product below. Status of each:
+    READY         made from every image
+    PARTIAL       made from the images in cache/ (k of n); --download makes it READY
+    LOWER LIMITS  the star is saturated: brightnesses shown are lower limits (true value higher)
+A product that cannot be made at all from cache/ triggers a download of the images it
+needs, then is made. demo/STATUS.md lists everything; demo/index.html shows it all.
+Run prepare_demo.py first (it makes flipbook, difference, overlay).
 """
 import argparse
 import html
@@ -28,8 +28,8 @@ from astropy.table import Table
 from astropy.time import Time
 
 warnings.simplefilter("ignore", RuntimeWarning)
-from spherex import api, set_style
-from spherex.download import find_cached
+from spherex import api, net, set_style
+from spherex.download import find_cached, prefetch
 from spherex.epochs import assign_epochs
 from spherex.frames import table_path
 from spherex.targets import parse_target, at_time
@@ -41,7 +41,7 @@ SECONDS_PER_DOWNLOAD = 9     # measured during prepare_demo.py runs
 ALL = ["D1", "D2", "D3", "D4", "D5", "D6"]
 # colour and difference pictures in which a saturated, filled-in core can look like a real signal
 SATURATION_SENSITIVE = {"band_difference.png", "rgb.png", "minus_mean.gif", "flipbook_all.gif", "flipbook_D5+D6.gif"}
-COLORS = {"READY": "#1baf7a", "PARTIAL": "#eda100", "POSSIBLE": "#eda100", "NOT POSSIBLE": "#7d7c76"}
+COLORS = {"READY": "#1baf7a", "PARTIAL": "#eda100", "LOWER LIMITS": "#9a9890", "FAILED": "#d03b3b"}
 
 
 def safe_name(text):
@@ -58,8 +58,51 @@ class Coverage:
         self.have = np.array([find_cached(r["access_url"], at_time(self.target, Time(r["mjd"], format="mjd")),
                                           CUTOUT_DEG) is not None for r in self.frames])
 
-    def count(self, dets=None, latest_visit=False, band=None, tol=0.02):
+    def count(self, **need):
         """(cached, total) frames for these detectors / the latest visit / a wavelength."""
+        sel = self.select(**need)
+        return int((self.have & sel).sum()), int(sel.sum())
+
+    def fetch(self, **need):
+        """Download the frames this product needs that are not in cache/ (demo mode off meanwhile)."""
+        sel = self.select(**need) & ~self.have
+        was = net.DEMO_MODE
+        net.set_demo_mode(False)
+        try:
+            prefetch(self.frames[sel], self.target, CUTOUT_DEG)
+        finally:
+            net.set_demo_mode(was)
+        self.have = self.have | (sel & self._cached_now(sel))
+
+    def fetch_for_picture(self, dets, per_det=8):
+        """Make a picture with these detectors possible: in the latest visit that has images from
+        ALL of them, download up to per_det images per detector (fewer if some are cached).
+        The detectors do not all see the same sky at once, so the latest visit may lack one.
+        Returns how many images were requested."""
+        f = self.frames
+        visits = [e for e in sorted(set(f["epoch"]))
+                  if all(((f["epoch"] == e) & (f["detector"] == d)).any() for d in dets)]
+        if not visits:
+            return 0
+        sel = np.zeros(len(f), bool)
+        for d in dets:
+            here = (f["epoch"] == visits[-1]) & (f["detector"] == d)
+            want = max(0, per_det - int((here & self.have).sum()))
+            sel[np.flatnonzero(here & ~self.have)[:want]] = True
+        was = net.DEMO_MODE
+        net.set_demo_mode(False)
+        try:
+            prefetch(f[sel], self.target, CUTOUT_DEG)
+        finally:
+            net.set_demo_mode(was)
+        self.have = self.have | (sel & self._cached_now(sel))
+        return int(sel.sum())
+
+    def _cached_now(self, sel):
+        return np.array([bool(s) and find_cached(r["access_url"], at_time(self.target, Time(r["mjd"], format="mjd")),
+                                                 CUTOUT_DEG) is not None for r, s in zip(self.frames, sel)])
+
+    def select(self, dets=None, latest_visit=False, band=None, tol=0.02):
         sel = np.ones(len(self.frames), bool)
         if dets is not None:
             sel &= np.isin(self.frames["detector"], dets)
@@ -69,20 +112,10 @@ class Coverage:
             lo = np.asarray(self.frames["em_min"], float) * 1e6 - tol
             hi = np.asarray(self.frames["em_max"], float) * 1e6 + tol
             sel &= (lo <= band) & (band <= hi)
-        return int((self.have & sel).sum()), int(sel.sum())
+        return sel
 
 
-# ---------------------------------------------------------------- placeholders
-def placeholder(path, title, status, message):
-    """A picture that says why a product is missing, in the same dark style as the results."""
-    fig = plt.figure(figsize=(7, 4.2))
-    fig.text(0.05, 0.86, title, fontsize=14, fontweight="bold")
-    fig.text(0.05, 0.72, status, fontsize=13, fontweight="bold", color=COLORS[status])
-    fig.text(0.05, 0.62, "\n".join(textwrap.wrap(message, 70)), fontsize=10, va="top")
-    fig.savefig(path)
-    plt.close(fig)
-
-
+# ---------------------------------------------------------------- saving
 def save(obj, path):
     """Save a figure (closing it) or GIF bytes."""
     if isinstance(obj, bytes):
@@ -122,57 +155,57 @@ def products(name, cfg):
     ]
 
 
-def classify_failure(message, cached, total):
-    """An API error -> (status, explanation)."""
-    if "saturated" in message:
-        return "NOT POSSIBLE", message
-    missing = total - cached
-    if total == 0:
-        return "NOT POSSIBLE", f"SPHEREx has no images of this kind for this target. ({message})"
-    if missing > 0:
-        minutes = missing * SECONDS_PER_DOWNLOAD / 60
-        return "POSSIBLE", (f"{missing} of {total} images it needs are at IRSA but not downloaded "
-                            f"(about {minutes:.0f} min). Run: python make_gallery.py --download "
-                            f"--only \"<target>\". Reason now: {message}")
-    return "NOT POSSIBLE", message
-
-
 def run_target(name, cfg, download):
     folder = OUT / safe_name(name)
     folder.mkdir(parents=True, exist_ok=True)
     cov = Coverage(name)
+    saturated = False            # set once the light curve or spectrum shows lower limits (they come first)
+    if download:
+        cov.fetch()                                       # every frame of the target
     rows = []
-    saturated = False            # set once the light curve or spectrum fails for saturation (they come first)
     print(f"\n========== {name} ==========")
     for file, title, need, make in products(name, cfg):
         path = folder / file
         if make is None:                                   # made by prepare_demo.py
-            rows.append((file, title, "READY" if path.exists() else "POSSIBLE",
-                         "" if path.exists() else "Run python prepare_demo.py --skip-explore"))
+            rows.append((file, title, "READY" if path.exists() else "FAILED",
+                         "" if path.exists() else "missing: run python prepare_demo.py --skip-explore"))
             continue
-        cached, total = cov.count(**need)
         t0 = time.time()
         try:
-            result = make()
+            try:
+                result = make()
+            except ValueError as e:                        # not enough images in cache/: fetch them, retry
+                cached, total = cov.count(**need)
+                if cached == total:
+                    raise
+                # one visit with every detector is enough for the picture; all visits of these
+                # detectors could be hundreds of downloads
+                print(f"  {file}: {e}\n  -> downloading a few images of one visit with {need.get('dets')}")
+                if "dets" in need:
+                    cov.fetch_for_picture(need["dets"])
+                else:
+                    cov.fetch(**need, latest_visit=True)
+                api._memory.clear()                        # stacks made before the download are stale
+                result = make()
             fig, table = result if isinstance(result, tuple) else (result, None)
             save(fig, path)
-            note = (table.meta.get("warning", "") if table is not None else "")
+            cached, total = cov.count(**need)
+            warning = table.meta.get("warning", "") if table is not None else ""
+            if warning.startswith("The target is saturated"):
+                status = "LOWER LIMITS"
+            elif cached < total:
+                status = "PARTIAL"
+                warning = (f"Made from the {cached} of {total} images in cache/; the other {total - cached} "
+                           f"are at IRSA (python make_gallery.py --download --only \"{name}\"). " + warning)
+            else:
+                status = "READY"
             if saturated and file in SATURATION_SENSITIVE:
-                note = ("The target is saturated: its core is filled in from the pixels around it, "
-                        "so its colour or brightness here is not a measurement.")
-            full = download or cached == total
-            status = "READY" if full else "PARTIAL"
-            text = ("" if full else f"Made from the {cached} of {total} images in cache/; "
-                    f"{total - cached} more are at IRSA (python make_gallery.py --download).")
-            rows.append((file, title, status, " ".join(x for x in (text, note) if x)))
-        except ValueError as e:
-            status, text = classify_failure(str(e).replace("<target>", name), cached, total)
-            text = text.replace("<target>", name)
-            placeholder(path.with_suffix(".png") if path.suffix == ".gif" else path, title, status, text)
-            if path.suffix == ".gif" and path.exists():
-                path.unlink()                             # an old video would contradict the placeholder
-            rows.append((path.with_suffix(".png").name if path.suffix == ".gif" else file, title, status, text))
-        if rows[-1][2] == "NOT POSSIBLE" and "saturated" in rows[-1][3]:
+                warning += (" The target is saturated: its core is filled in from the pixels around it, "
+                            "so its colour or brightness here is not a measurement.")
+            rows.append((file, title, status, warning.strip()))
+        except Exception as e:                             # should not happen; reported, never hidden
+            rows.append((file, title, "FAILED", f"{type(e).__name__}: {e}"))
+        if rows[-1][2] == "LOWER LIMITS":
             saturated = True
         print(f"  {rows[-1][2]:12s} {file:22s} ({time.time() - t0:.0f} s)")
     return rows
@@ -182,8 +215,8 @@ def run_target(name, cfg, download):
 def write_status(all_rows):
     lines = ["# Demo results: what is ready, partial, possible, or not possible", "",
              "Made by `make_gallery.py`. READY = made from every image; PARTIAL = made from the "
-             "images in cache/ only; POSSIBLE = the images exist but are not downloaded; "
-             "NOT POSSIBLE = cannot be measured (e.g. saturated). Open `index.html` to see them.", ""]
+             "images in cache/ only (`--download` completes it); LOWER LIMITS = the star is saturated, "
+             "so the brightnesses shown are lower limits. Open `index.html` to see them.", ""]
     for name, rows in all_rows.items():
         lines += [f"## {name}", "", "| Product | Status | Notes |", "|---|---|---|"]
         lines += [f"| {title} (`{file}`) | {status} | {note.replace('|', '/')} |" for file, title, status, note in rows]
@@ -214,7 +247,7 @@ figcaption {{ font-size:13px; margin-top:6px; color:var(--muted); }} figcaption 
 .s {{ color:#111; font-size:11px; font-weight:700; padding:1px 6px; border-radius:4px; margin-left:4px; }}
 </style></head><body><h1>SPHEREx demo results</h1>
 <p>Every product for every challenge target. Status: READY, PARTIAL (from the images in cache/ only),
-POSSIBLE (images not downloaded yet), NOT POSSIBLE (e.g. saturated). Details in STATUS.md.</p>
+LOWER LIMITS (saturated star: true brightness higher). Details in STATUS.md.</p>
 {''.join(cards)}</body></html>
 """)
 
@@ -224,7 +257,7 @@ if __name__ == "__main__":
     p.add_argument("--only", help="just this target")
     p.add_argument("--download", action="store_true", help="download missing frames (slow)")
     a = p.parse_args()
-    api.set_demo_mode(not a.download)
+    api.set_demo_mode(True)              # products use cache/; Coverage.fetch downloads what is needed
     set_style(dark=True)
     todo = {k: v for k, v in api.DEMO_DEFAULTS.items() if not a.only or k.lower() == a.only.lower()}
     if not todo:

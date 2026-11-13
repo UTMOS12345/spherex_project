@@ -55,9 +55,10 @@ In `overlay_figure`, a catalogue that cannot be reached is listed in `notes["fai
 
 ## Things to tell users
 
-- Saturated stars (Barnard's Star, R Draconis, sometimes RW Aur) have filled cores in pictures and no
-  brightness measurements: `light_curve_figure` / `spectrum_figure` raise a `ValueError` saying so
-  (show it with `st.error`), and unusable points have `flux_mjy = NaN`, not 0.
+- Saturated stars (Barnard's Star, R Draconis, sometimes RW Aur) have filled cores in pictures. Their
+  light curves and spectra still come back as plots, showing LOWER LIMITS (triangles, column
+  `flux_min_mjy`) measured from the unsaturated wings: the true brightness is higher. The figure and
+  `table.meta["warning"]` say so; `flux_mjy` is NaN for those points, not 0.
 - Light curves use a ±0.02 µm window by default. Wider windows mix wavelengths, and across a
   steep spectrum that looks like variability.
 - A combined-detector or deep picture mixes colours or dates: good for seeing, not for measuring.

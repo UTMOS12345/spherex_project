@@ -22,7 +22,8 @@ def channel_edges():
 
 def spectrum(frames_of_epoch, target, r_px=2.0, size_deg=0.1):
     """Frames of ONE visit (all detectors) + target SkyCoord -> Table sorted by wavelength:
-    wavelength_um, flux_mjy, err_mjy, detector, mjd, n_bad, saturated, bad_flags, ok.
+    wavelength_um, flux_mjy, err_mjy, flux_min_mjy (lower limit, saturated only), detector, mjd,
+    n_bad, saturated, bad_flags, ok.
     Every frame sees the target at its own wavelength (the colour depends on where the
     star lands on the detector), so the frames of one visit together cover 0.75-5 micron."""
     rows = []
@@ -35,12 +36,14 @@ def spectrum(frames_of_epoch, target, r_px=2.0, size_deg=0.1):
             continue
         if np.isfinite(m["wavelength_um"]):
             rows.append(m)
-    names = ["wavelength_um", "flux_mjy", "err_mjy", "detector", "mjd", "n_bad", "saturated", "bad_flags", "ok"]
+    names = ["wavelength_um", "flux_mjy", "err_mjy", "flux_min_mjy", "detector", "mjd", "n_bad", "saturated",
+             "bad_flags", "ok"]
     if not rows:
         return Table(names=names)
     t = Table(rows)[names]
     t.sort("wavelength_um")
-    for col, fmt in [("wavelength_um", ".3f"), ("flux_mjy", ".3f"), ("err_mjy", ".3f"), ("mjd", ".3f")]:
+    for col, fmt in [("wavelength_um", ".3f"), ("flux_mjy", ".3f"), ("err_mjy", ".3f"), ("flux_min_mjy", ".1f"),
+                     ("mjd", ".3f")]:
         t[col].info.format = fmt
     return t
 

@@ -102,7 +102,8 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30):
     """The easy-to-read light curve: ONE axis, x = date, y = brightness.
     Big dot = the average of one visit (bar = spread of that visit's points),
     small dots = the single usable measurements, a line joins the visits.
-    A visit with no usable point is marked at the bottom with the reason."""
+    A visit with no usable point shows its lower limits (saturated star: grey triangles, the true
+    brightness is higher) or, if there are none, is marked at the bottom with the reason."""
     B, INK, MUTED, GRID = THEME["blue"], THEME["ink"], THEME["muted"], THEME["grid"]
     lc = lc.copy()
     lc.sort("mjd")
@@ -110,12 +111,20 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30):
     fig, ax = plt.subplots(figsize=(8, 4.6))
     ax.grid(axis="y", lw=1); ax.set_axisbelow(True)
     ax.spines["left"].set_visible(False); ax.tick_params(length=0)
-    dates, means, spreads, empty = [], [], [], []
+    dates, means, spreads, empty, limits = [], [], [], [], []
+    has_limits = "flux_min_mjy" in lc.colnames
     for v in sorted(set(visit)):
         rows = lc[visit == v]
         good = rows[rows["ok"]]
         d = Time(np.mean(rows["mjd"]), format="mjd").datetime
         if len(good) == 0:
+            lim = np.asarray(rows["flux_min_mjy"], float) if has_limits else np.array([])
+            lim = lim[np.isfinite(lim) & (lim > 0)]
+            if len(lim):
+                limits.append((Time(rows["mjd"][np.isfinite(np.asarray(rows["flux_min_mjy"], float))
+                                                & (np.asarray(rows["flux_min_mjy"], float) > 0)], format="mjd").datetime,
+                               lim, d))
+                continue
             reason = "saturated" if rows["saturated"].any() else "bad pixels"
             empty.append((d, reason))
             continue
@@ -130,16 +139,20 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30):
         for d, m in zip(dates, means):
             ax.annotate(f"{m:,.0f}", (d, m), xytext=(10, 0), textcoords="offset points",
                         va="center", fontsize=9, color=INK)
-        ax.set_ylim(0, max(np.array(means) + np.array(spreads)) * 1.3)
-    else:
-        ax.set_ylim(0, 1)
+    for k, (times, lim, d) in enumerate(limits):
+        ax.plot(times, lim, "^", color=THEME["flag"], ms=8, mew=0,
+                label="saturated: lower limit (true brightness is higher)" if k == 0 else None)
+        ax.annotate(f"at least {lim.max():,.0f}", (d, lim.max()), xytext=(10, 0), textcoords="offset points",
+                    va="center", fontsize=9, color=THEME["muted"])
+    tops = ([max(np.array(means) + np.array(spreads))] if dates else []) + [lim.max() for _, lim, _ in limits]
+    ax.set_ylim(0, max(tops) * 1.3 if tops else 1)
     for d, reason in empty:
         ax.annotate(f"no usable data\n({reason})", (d, 0), xytext=(0, 8), textcoords="offset points",
                     ha="center", va="bottom", fontsize=9, color=MUTED)
         ax.plot([d], [0], marker="x", color=THEME["flag"], ms=9, mew=2, clip_on=False)
     ax.set_ylabel("brightness (mJy)")
     ax.set_title(title, loc="left", fontsize=12, fontweight="bold")
-    if dates:
+    if dates or limits:
         ax.legend(loc="upper left", fontsize=9, labelcolor=MUTED)
     fig.autofmt_xdate()
     fig.tight_layout()
@@ -162,14 +175,25 @@ def _mark_molecules(ax):
                     va="top", fontsize=7, color=THEME["muted"])
 
 
+def _limits(spec):
+    """Rows of a spectrum or light-curve table that carry a lower limit (saturated, > 0)."""
+    if not len(spec) or "flux_min_mjy" not in spec.colnames:
+        return spec[:0]
+    v = np.asarray(spec["flux_min_mjy"], float)
+    return spec[np.isfinite(v) & (v > 0) & ~np.asarray(spec["ok"], bool)]
+
+
 def plot_spectrum(spec, binned, title, out_png=None, log=False, molecules=True):
+    lim = _limits(spec)
     if log == "auto":                # logarithmic only when the brightness spans > 30x
         v = np.asarray(spec["flux_mjy"][spec["ok"]], float) if len(spec) else np.array([1.0])
+        v = np.concatenate([v, lim["flux_min_mjy"]]) if len(lim) else v
         v = v[v > 0]
         log = len(v) > 0 and v.max() / v.min() > 30
     """Spectrum table (from spectrum()) + channel table (from bin_to_channels()) -> figure.
     Light/dark bands mark the six detectors. Small dots = single measurements,
-    big dots joined by a line = the average in each of the 102 channels, grey x = flagged."""
+    big dots joined by a line = the average in each of the 102 channels, grey x = flagged,
+    grey triangles = lower limits of a saturated star (the true brightness is higher)."""
     from .spectrum import BANDS_UM
     B, INK, MUTED, GRID = THEME["blue"], THEME["ink"], THEME["muted"], THEME["grid"]
     fig, ax = plt.subplots(figsize=(10, 4.8))
@@ -191,8 +215,14 @@ def plot_spectrum(spec, binned, title, out_png=None, log=False, molecules=True):
         ax.errorbar(binned["wavelength_um"], binned["flux_mjy"], yerr=binned["err_mjy"], fmt="o",
                     color=B, ms=7, mec=THEME["surface"], mew=1.5, elinewidth=1.5, capsize=0,
                     label="channel average")
-    if len(good):
-        lo, hi = np.nanmin(good["flux_mjy"]), np.nanmax(good["flux_mjy"])
+    if len(lim):
+        ax.plot(lim["wavelength_um"], lim["flux_min_mjy"], "^", color=THEME["flag"], ms=6, mew=0,
+                label=f"saturated: lower limit ({len(lim)}; true brightness is higher)")
+        bad = bad[~np.isin(np.asarray(bad["mjd"]), np.asarray(lim["mjd"]))] if "mjd" in bad.colnames else bad
+    shown = np.concatenate([np.asarray(good["flux_mjy"], float), np.asarray(lim["flux_min_mjy"], float)])
+    shown = shown[np.isfinite(shown)]
+    if len(shown):
+        lo, hi = shown.min(), shown.max()
         if log and hi > 0:
             ax.set_yscale("log")
             ax.set_ylim(max(lo, hi * 1e-3) * 0.5, hi * 2)
@@ -208,7 +238,8 @@ def plot_spectrum(spec, binned, title, out_png=None, log=False, molecules=True):
         _mark_molecules(ax)
     ax.set_xlabel("wavelength (µm)"); ax.set_ylabel("brightness (mJy)")
     ax.set_title(title, loc="left", fontsize=12, fontweight="bold", pad=18)
-    ax.legend(loc="upper left", fontsize=9, labelcolor=MUTED)
+    ax.legend(loc="upper left", fontsize=9, labelcolor=MUTED, frameon=True, facecolor=THEME["surface"],
+              edgecolor="none", framealpha=0.9)          # readable over the molecule labels
     fig.tight_layout()
     if out_png:
         fig.savefig(out_png)
@@ -221,7 +252,9 @@ VISIT_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#6250d6"
 
 def plot_spectra_visits(binned_by_visit, title, out_png=None, log="auto", molecules=True):
     """Channel spectra of several visits on one plot -> figure. binned_by_visit is a list of
-    (label, table from bin_to_channels). Shows how the whole spectrum changed between visits."""
+    (label, table from bin_to_channels) or (label, binned, spectrum table). Shows how the whole
+    spectrum changed between visits. A visit with no usable channel but lower limits (saturated
+    star, from the spectrum table) is drawn as triangles: the true brightness is higher."""
     from .spectrum import BANDS_UM
     fig, ax = plt.subplots(figsize=(10, 4.8))
     ax.grid(axis="y", lw=1); ax.set_axisbelow(True)
@@ -229,11 +262,18 @@ def plot_spectra_visits(binned_by_visit, title, out_png=None, log="auto", molecu
     for d, (lo, hi) in BANDS_UM.items():
         if d % 2 == 0:
             ax.axvspan(lo, hi, color=THEME["grid"], alpha=0.35, lw=0)
-    peak = []
-    for k, (label, b) in enumerate(binned_by_visit[:len(VISIT_COLORS)]):
-        if len(b) == 0:
-            continue
+    peak, limit_vals = [], []
+    for k, entry in enumerate(binned_by_visit[:len(VISIT_COLORS)]):
+        label, b = entry[0], entry[1]
         c = VISIT_COLORS[k]
+        if len(b) == 0:
+            lim = _limits(entry[2]) if len(entry) > 2 else []
+            if len(lim):
+                ax.plot(lim["wavelength_um"], lim["flux_min_mjy"], "^", color=c, ms=5, mew=0,
+                        label=f"{label} (saturated: lower limits)")
+                limit_vals.append(np.asarray(lim["flux_min_mjy"], float))
+                peak.append(float(np.max(lim["flux_min_mjy"])))
+            continue
         for d in sorted(set(b["detector"])):
             sel = b[b["detector"] == d]
             ax.plot(sel["wavelength_um"], sel["flux_mjy"], "-", color=c, lw=1.8,
@@ -241,7 +281,8 @@ def plot_spectra_visits(binned_by_visit, title, out_png=None, log="auto", molecu
         ax.plot(b["wavelength_um"], b["flux_mjy"], "o", color=c, ms=4)
         peak.append(np.nanmax(b["flux_mjy"]))
     if log == "auto":                # logarithmic only when the brightness spans > 30x
-        vals = np.concatenate([np.asarray(b["flux_mjy"], float) for _, b in binned_by_visit if len(b)] or [[1]])
+        vals = np.concatenate([np.asarray(e[1]["flux_mjy"], float) for e in binned_by_visit if len(e[1])]
+                              + limit_vals or [[1]])
         vals = vals[vals > 0]
         log = len(vals) > 0 and vals.max() / vals.min() > 30
     if log:
@@ -253,7 +294,8 @@ def plot_spectra_visits(binned_by_visit, title, out_png=None, log="auto", molecu
         _mark_molecules(ax)
     ax.set_xlabel("wavelength (µm)"); ax.set_ylabel("brightness (mJy)")
     ax.set_title(title, loc="left", fontsize=12, fontweight="bold")
-    ax.legend(loc="upper left", fontsize=9, labelcolor=THEME["muted"])
+    ax.legend(loc="upper left", fontsize=9, labelcolor=THEME["muted"], frameon=True,
+              facecolor=THEME["surface"], edgecolor="none", framealpha=0.9)
     fig.tight_layout()
     if out_png:
         fig.savefig(out_png)
