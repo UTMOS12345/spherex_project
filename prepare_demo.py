@@ -23,10 +23,9 @@ import matplotlib.pyplot as plt
 from astropy.time import Time
 
 warnings.simplefilter("ignore", RuntimeWarning)
-from spherex import (parse_detectors, parse_target, at_time, load_or_find_frames, assign_epochs, prefetch,
-                     make_epochs, make_gif, difference, shared_norm, gaia_overlay, wise_overlay,
-                     draw_gaia, light_curve, plot_light_curve_simple, spectrum, bin_to_channels,
-                     epoch_frames, plot_spectrum, set_style)
+from spherex import (api, parse_detectors, parse_target, at_time, load_or_find_frames, assign_epochs, prefetch,
+                     make_epochs, make_gif, difference, shared_norm, light_curve, spectrum,
+                     epoch_frames, set_style)
 
 from spherex.api import DEMO_DEFAULTS
 
@@ -82,29 +81,24 @@ def save_flipbook_and_diff(name, target, epochs, folder):
     plt.close(fig)
 
 
-def save_overlay(name, target, ep, folder, radius=0.15):   # 0.15 deg covers views up to ~15'
-    t = Time(ep["mjd"], format="mjd")
-    center = ep["wcs"].pixel_to_world(ep["image"].shape[1] / 2, ep["image"].shape[0] / 2)
-    fig = plt.figure(figsize=(6.5, 6.5))
-    ax = fig.add_subplot(projection=ep["wcs"])
-    ax.imshow(ep["image"], origin="lower", cmap="gray", norm=shared_norm([ep["image"]]))
-    notes = []
-    for label, fn, kw in [("Gaia", gaia_overlay, {}),
-                          ("WISE", wise_overlay, dict(color="#e87ba4", fast_color="#eb6834", marker="s"))]:
-        try:
-            draw_gaia(ax, fn(center, radius, t), ep["wcs"], ep["image"].shape, **kw)
-            notes.append(label)
-        except Exception as e:
-            print(f"    {label} overlay skipped: {type(e).__name__}: {str(e)[:80]}")
-    x, y = ep["wcs"].world_to_pixel(at_time(target, t))
-    ax.scatter([x], [y], s=500, facecolors="none", edgecolors="lime", lw=1.2)
-    ax.set_title(f"{name}  {ep['detector']}  {ep['date']}\n"
-                 f"circles = Gaia, squares = WISE, arrows = next 5 years, green = target", fontsize=9)
-    ax.set_xlabel("RA"); ax.set_ylabel("Dec")
+def save_overlay(name, cfg, folder):
+    """The app's own overlay (api.overlay_figure), so the backup shows what the app shows."""
+    fig, notes = api.overlay_figure(name, cfg["detector"], FIELD_ARCMIN)
     fig.savefig(folder / "overlay.png", bbox_inches="tight")
     plt.close(fig)
-    if not notes:
+    write_note(folder / "overlay_note.txt", notes.get("verdict"))
+    if notes["failed"]:
+        print(f"    overlay: not available: {notes['failed']}")
+    if not notes["drawn"]:
         raise OSError("neither Gaia nor WISE could be reached")
+
+
+def write_note(path, text):
+    """Save a warning or message next to a backup picture; remove an old one if there is none."""
+    if text:
+        path.write_text(text + "\n")
+    elif path.exists():
+        path.unlink()
 
 
 def run_target(name, cfg, a, log):
@@ -135,24 +129,37 @@ def run_target(name, cfg, a, log):
     step(f"stack visits ({cfg['detector']})", epochs)
     if state.get("epochs"):
         step("flipbook.gif + difference.png", lambda: save_flipbook_and_diff(name, target, state["epochs"], folder))
-        step("overlay.png (Gaia + WISE)", lambda: save_overlay(name, target, state["epochs"][-1], folder))
+        step("overlay.png (Gaia + WISE)", lambda: save_overlay(name, cfg, folder))
 
-    def lc():
-        curve = light_curve(frames, target, cfg["band"], tol_um=cfg["tol"])
+    def lc():                        # the app's light curve; a saturated target gets a note, no picture
+        try:
+            fig, curve = api.light_curve_figure(name, cfg["band"], cfg["tol"])
+            fig.savefig(folder / "lightcurve.png", bbox_inches="tight")
+            plt.close(fig)
+            note = curve.meta.get("warning")
+        except ValueError as e:
+            curve = light_curve(frames, target, cfg["band"], tol_um=cfg["tol"])
+            (folder / "lightcurve.png").unlink(missing_ok=True)
+            note = str(e)
         curve.write(folder / "lightcurve.csv", overwrite=True)
-        plot_light_curve_simple(curve, f"{name}: brightness at {cfg['band']:g} ± {cfg['tol']:g} µm",
-                                folder / "lightcurve.png")
-        log.append(f"        light curve: {len(curve)} points, {int(curve['ok'].sum()) if len(curve) else 0} usable")
+        write_note(folder / "lightcurve_note.txt", note)
+        log.append(f"        light curve: {len(curve)} points, {int(curve['ok'].sum()) if len(curve) else 0} usable"
+                   + (f"  [{note[:70]}]" if note else ""))
     step(f"lightcurve ({cfg['band']} um)", lc)
 
-    def sp():
-        latest = epoch_frames(frames, -1)
-        spec = spectrum(latest, target)
-        binned = bin_to_channels(spec)
+    def sp():                        # every measurement to CSV; the picture is the app's
+        spec = spectrum(epoch_frames(frames, -1), target)
         spec.write(folder / "spectrum.csv", overwrite=True)
-        plot_spectrum(spec, binned, f"{name}: spectrum, visit of {latest['date'][0][:10]}",
-                      folder / "spectrum.png", log="auto")
-        log.append(f"        spectrum: {len(spec)} points, {len(binned)} of 102 channels")
+        try:
+            fig, binned = api.spectrum_figure(name)
+            fig.savefig(folder / "spectrum.png", bbox_inches="tight")
+            plt.close(fig)
+            note, n = binned.meta.get("warning"), len(binned)
+        except ValueError as e:
+            (folder / "spectrum.png").unlink(missing_ok=True)
+            note, n = str(e), 0
+        write_note(folder / "spectrum_note.txt", note)
+        log.append(f"        spectrum: {len(spec)} points, {n} of 102 channels" + (f"  [{note[:70]}]" if note else ""))
     step("spectrum (latest visit)", sp)
 
     def extra():                     # deep, differences, colour, spectra per visit, asteroids
