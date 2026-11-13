@@ -1,5 +1,6 @@
 """Lesson 2 - turn user text into a SkyCoord (with proper motion), and time helpers."""
 import re
+import time
 from functools import lru_cache
 
 import numpy as np
@@ -107,8 +108,24 @@ def _num(v):
     return None if np.ma.is_masked(v) else float(v)
 
 
-@lru_cache(maxsize=256)
+FAILED_TTL_S = 120            # a name that could not be resolved is not asked again for this long
+_failed = {}                  # name -> time of the last failure
+
+
 def resolve_name(name):
+    """Like _resolve_name, but a recent failure fails again at once: the app asks several
+    times per page, and each SIMBAD + Sesame miss costs seconds."""
+    if time.time() - _failed.get(name, -1e9) < FAILED_TTL_S:
+        raise ValueError(f"Could not resolve name: {name!r}")
+    try:
+        return _resolve_name(name)
+    except ValueError:
+        _failed[name] = time.time()
+        raise
+
+
+@lru_cache(maxsize=256)
+def _resolve_name(name):
     """Name -> SkyCoord. The challenge targets come from KNOWN (position, motion and epoch
     checked); other names from SIMBAD (Harvard, then CDS), then Sesame.
     Answers are remembered for the life of the process (the app asks on every rerun);

@@ -53,14 +53,17 @@ def show(fig):
 
 
 def guarded(fn):
-    """Run one panel; a failure shows a message in that panel and the rest of the page still works."""
+    """Run one panel; a failure shows a message in that panel and the rest of the page still works.
+    Returns True if the panel worked."""
     try:
         fn()
+        return True
     except ValueError as e:                           # readable messages from the API
         st.error(str(e))
     except Exception as e:                            # network trouble, missing files, bugs
         st.error(f"This part could not be made ({type(e).__name__}: {str(e)[:200]}). "
                  "The data may not be downloaded yet; try again or pick another setting.")
+    return False
 
 
 @st.cache_data(show_spinner=False)
@@ -139,7 +142,8 @@ def visits():
         st.dataframe(api.visits(text, refresh=True).to_pandas())
 
 
-guarded(header)
+if not guarded(header):                               # unknown target: one message, not one per tab
+    st.stop()
 tabs = st.tabs(["Video", "Pictures", "Overlays", "Light curve", "Spectrum", "Flags", "Visits"])
 with tabs[0]:
     guarded(video)

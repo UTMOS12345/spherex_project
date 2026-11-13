@@ -116,6 +116,9 @@ def _epochs(text, detector="D2", fov=4.0, wl=None, days=60):
         eps = make_epochs(frames, target, det, grid_arcmin=fov, wl_range=wl,
                           gap_days=min(30, days), max_len_days=days)
         if not eps:
+            if net.DEMO_MODE:
+                raise ValueError(f"The {det or 'matching'} images of '{text}' are not in the offline cache. "
+                                 "Untick demo mode to download them (this takes minutes).")
             raise ValueError(f"No usable {det or 'matching'} images of '{text}'"
                              + (f" at {wl[0]}-{wl[1]} micron." if wl else "."))
         if len(_memory) > 40:
@@ -429,13 +432,18 @@ def spectrum_figure(text, visit=-1, all_visits=False):
     target, frames = _load(text)
     ids = sorted(set(frames["epoch"]))
     if all_visits:
-        per, tables = [], []
+        per, tables, saturated = [], [], []
         for e in ids:
             sub = frames[frames["epoch"] == e]
-            b = bin_to_channels(spectrum(sub, target))
+            spec = spectrum(sub, target)
+            b = bin_to_channels(spec)
             per.append((sub["date"][0][:10], b))
+            saturated.append(len(spec) > 0 and spec["saturated"].mean() > 0.5)
             if len(b):
                 b = b.copy(); b["visit"] = int(e); tables.append(b)
+        if all(saturated) and max((len(b) for _, b in per), default=0) < 5:
+            raise ValueError(f"No usable spectrum for '{text}': it is saturated (too bright) in most "
+                             "images of every visit. The pictures still show it.")
         if not tables:
             raise ValueError(f"No usable spectrum for '{text}' in any visit (saturated, or every "
                              "measurement has flagged pixels). The pictures still show it.")
@@ -450,8 +458,10 @@ def spectrum_figure(text, visit=-1, all_visits=False):
     binned = bin_to_channels(spec)
     if len(spec) == 0:
         raise ValueError(f"No spectrum could be measured for '{text}' in that visit.")
-    if len(binned) == 0:
-        why = ("it is saturated (too bright) in every image of that visit" if spec["saturated"].mean() > 0.5
+    mostly_saturated = spec["saturated"].mean() > 0.5
+    if len(binned) == 0 or (mostly_saturated and len(binned) < 5):
+        why = ("it is saturated (too bright) in most images of that visit "
+               f"({len(binned)} of 102 channels usable)" if mostly_saturated
                else "every measurement has flagged pixels")
         raise ValueError(f"No usable spectrum for '{text}': {why}. The pictures still show it.")
     fig = plot_spectrum(spec, binned, f"{text}: spectrum, visit of {sub['date'][0][:10]}", log="auto")
@@ -462,17 +472,31 @@ def spectrum_figure(text, visit=-1, all_visits=False):
 def flags_figure(text, detector="D2", visit=-1, frame=0):
     """One single exposure with its flagged pixels -> (figure, table).
     Left: the raw image. Right: cleaned image with masked pixels in red.
-    Table: every flag with the percentage of pixels that carry it, and whether we mask it."""
+    Table: every flag with the percentage of pixels that carry it, and whether we mask it.
+    visit counts only visits with images from this detector (-1 = the latest such visit).
+    If exposure `frame` cannot be loaded (demo mode, not in cache/), the next one that can is shown."""
     target, frames = _load(text)
     det = parse_detectors(detector)[0]
-    ids = sorted(set(frames["epoch"]))
+    mine = frames[frames["detector"] == det]
+    ids = sorted(set(mine["epoch"]))
+    if not ids:
+        raise ValueError(f"There are no {det} images of '{text}'.")
     try:
-        rows = frames[(frames["epoch"] == ids[visit]) & (frames["detector"] == det)]
-        row = rows[frame]
+        rows = mine[mine["epoch"] == ids[visit]]
     except IndexError:
-        raise ValueError(f"No such {det} exposure in that visit.")
-    pos = at_time(target, Time(row["mjd"], format="mjd"))
-    f = clean_frame(get_cutout(row["access_url"], pos, 0.1))
+        raise ValueError(f"There are only {len(ids)} visits with {det} images.")
+    if not 0 <= frame < len(rows):
+        raise ValueError(f"That visit has {len(rows)} {det} exposures (use 0..{len(rows) - 1}).")
+    for row in list(rows[frame:]) + list(rows[:frame]):
+        pos = at_time(target, Time(row["mjd"], format="mjd"))
+        try:
+            path = get_cutout(row["access_url"], pos, 0.1)
+            break
+        except OSError:
+            continue
+    else:
+        raise ValueError(f"None of the {det} exposures of that visit is available offline.")
+    f = clean_frame(path)
     cmap = plt.get_cmap("gray").copy()
     cmap.set_bad("red")
     fig, axes = plt.subplots(1, 2, figsize=(11, 5.4))
