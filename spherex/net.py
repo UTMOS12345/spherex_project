@@ -25,3 +25,22 @@ def with_retries(fn, *args, tries=5, **kwargs):
         wait = min(5 * 2 ** attempt, 60)
         print(f"    {getattr(fn, '__name__', 'call')}: {err} -> retry in {wait}s")
         time.sleep(wait)
+
+
+def find_cached_cone(folder, prefix, center, radius_deg):
+    """A cached catalogue file (folder/prefix_<ra>_<dec>_<radius>.ecsv) whose circle fully
+    contains the requested one -> its rows inside the requested circle; else None."""
+    import astropy.units as u
+    from astropy.coordinates import SkyCoord
+    from astropy.table import Table
+    import numpy as np
+    for p in sorted(folder.glob(f"{prefix}_*.ecsv")):
+        try:
+            ra, dec, rad = (float(v) for v in p.stem[len(prefix) + 1:].split("_"))
+        except ValueError:
+            continue
+        if center.separation(SkyCoord(ra * u.deg, dec * u.deg)).deg + radius_deg <= rad + 1e-6:
+            t = Table.read(p)
+            sep = center.separation(SkyCoord(np.asarray(t["ra"], float) * u.deg, np.asarray(t["dec"], float) * u.deg))
+            return t[sep.deg <= radius_deg]
+    return None

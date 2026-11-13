@@ -16,19 +16,24 @@ TABLE_DIR = Path("cache/frames")
 
 
 def spherex_collections():
-    """Wide-survey QR collections, newest first, e.g. ['spherex_qr3', 'spherex_qr2', 'spherex_qr']."""
+    """Wide-survey SPHEREx collections on IRSA, best first, e.g.
+    ['spherex_dr2', 'spherex_dr1', 'spherex_qr3', 'spherex_qr2', 'spherex_qr'].
+    Data Releases (dr) are the final reprocessing, so they rank above Quick Releases (qr);
+    within each kind the higher number is newer. _deep and _cal collections are skipped.
+    Any future release (qr4, dr2, ...) is picked up automatically."""
     tab = with_retries(Irsa.list_collections, servicetype="SIA", filter="spherex")
     found = []
     for n in (str(x) for x in tab["collection"]):
-        m = re.fullmatch(r"spherex_qr(\d*)", n)          # skips _cal and _deep
+        m = re.fullmatch(r"spherex_(qr|dr)(\d*)", n)
         if m:
-            found.append((int(m.group(1) or 1), n))
-    return [n for _, n in sorted(found, reverse=True)]
+            kind, num = m.group(1), int(m.group(2) or 1)
+            found.append((kind == "dr", num, n))          # dr before qr, then newest first
+    return [n for *_, n in sorted(found, reverse=True)]
 
 
 def find_frames(coord, collections=None, include_qr1=False):
-    """Target SkyCoord -> Table of frames sorted by time, merged across QR releases
-    (newest processing of each exposure wins).
+    """Target SkyCoord -> Table of frames sorted by time, merged across all releases
+    (DR and QR); when an exposure is in several releases, the best one wins.
     Columns: mjd, date, detector ('D1'..'D6'), band_um, obs_id, access_url, collection."""
     cols = collections or spherex_collections()
     if not include_qr1 and len(cols) > 1:
@@ -68,6 +73,9 @@ def load_or_find_frames(name, coord, refresh=False):
     refresh=True searches again (new SPHEREx data is released weekly)."""
     safe = re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_")
     path = TABLE_DIR / f"{safe}.ecsv"
+    if not path.exists() and TABLE_DIR.exists():          # same name in another letter case
+        same = [p for p in TABLE_DIR.glob("*.ecsv") if p.stem.lower() == safe.lower()]
+        path = same[0] if same else path
     if path.exists() and not refresh:
         return Table.read(path)
     frames = find_frames(coord)
