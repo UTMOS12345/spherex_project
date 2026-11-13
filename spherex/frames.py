@@ -9,7 +9,7 @@ from astropy.time import Time
 from astroquery.ipac.irsa import Irsa
 
 from .net import with_retries
-from .targets import at_time
+from .targets import at_time, target_name
 
 KEEP = ["t_min", "t_max", "energy_bandpassname", "em_min", "em_max", "obs_id", "access_url"]
 TABLE_DIR = Path("cache/frames")
@@ -68,14 +68,18 @@ def find_frames(coord, collections=None, include_qr1=False):
     return t
 
 
+def table_path(name, coord=None):
+    """cache/frames/<safe target name>.ecsv - the one naming rule for frame lists."""
+    safe = re.sub(r"[^A-Za-z0-9]+", "_", target_name(name, coord)).strip("_")
+    return TABLE_DIR / f"{safe}.ecsv"
+
+
 def load_or_find_frames(name, coord, refresh=False):
     """Like find_frames but saved to cache/frames/<name>.ecsv, so reruns work offline.
-    refresh=True searches again (new SPHEREx data is released weekly)."""
-    safe = re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_")
-    path = TABLE_DIR / f"{safe}.ecsv"
-    if not path.exists() and TABLE_DIR.exists():          # same name in another letter case
-        same = [p for p in TABLE_DIR.glob("*.ecsv") if p.stem.lower() == safe.lower()]
-        path = same[0] if same else path
+    refresh=True searches again (new SPHEREx data is released weekly).
+    The file name comes from targets.target_name, so 'barnard', "Barnard's Star" and its
+    coordinates all share cache/frames/Barnard_s_Star.ecsv."""
+    path = table_path(name, coord)
     if path.exists() and not refresh:
         return Table.read(path)
     frames = find_frames(coord)

@@ -12,7 +12,6 @@ unknown detector, no data), so the app can show it with st.error(str(e)).
 Slow on first use for a new target (downloads); fast afterwards (disk cache + memory cache).
 """
 import os
-import re
 import tempfile
 
 import numpy as np
@@ -36,7 +35,7 @@ from .gaia import gaia_overlay, draw_gaia
 from .photometry import light_curve
 from .plots import plot_light_curve_simple, plot_spectrum, plot_spectra_visits
 from .spectrum import spectrum, bin_to_channels
-from .targets import parse_target, at_time, has_pm, known_target
+from .targets import parse_target, at_time, has_pm, known_target, target_name
 from .wise import wise_overlay
 
 MAX_FOV = 10.0            # arcmin served from the standard downloads
@@ -44,18 +43,17 @@ _memory = {}              # stacks already made in this process: key -> list of 
 
 
 # ------------------------------------------------------------------ helpers
-def _key(text):
-    """One cache name per target: 'WISE 0855' and its coordinates share the same files."""
-    return known_target(text) or re.sub(r"\s+", " ", text.strip().lower())
-
-
-def _load(text, refresh=False):
+def _parse(text):
     try:
-        target = parse_target(text)
+        return parse_target(text)
     except ValueError:
         raise ValueError(f"Could not find '{text}'. Check the spelling, or enter coordinates "
                          f"like '133.795 -7.245' or '08h55m10.8s -07d14m42.5s'.")
-    frames = load_or_find_frames(_key(text), target, refresh=refresh)
+
+
+def _load(text, refresh=False):
+    target = _parse(text)
+    frames = load_or_find_frames(text, target, refresh=refresh)
     if len(frames) == 0:
         raise ValueError(f"SPHEREx has no images of '{text}' yet.")
     return target, assign_epochs(frames)
@@ -82,7 +80,8 @@ def _epochs(text, detector="D2", fov=4.0, wl=None, days=60):
     wl = _wl(wl)
     det = None if (wl and not detector) else "+".join(parse_detectors(detector or "D2"))
     target, frames = _load(text)
-    key = (_key(text), det, round(float(fov), 2), wl, days, len(frames))
+    # the frame URLs are part of the key: a refresh that swaps releases rebuilds the stacks
+    key = (target_name(text, target), det, round(float(fov), 2), wl, days, hash(tuple(frames["access_url"])))
     if key not in _memory:
         eps = make_epochs(frames, target, det, grid_arcmin=fov, wl_range=wl,
                           gap_days=min(30, days), max_len_days=days)

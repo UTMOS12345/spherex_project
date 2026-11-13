@@ -30,12 +30,37 @@ ALIASES = {
 }
 MATCH_RADIUS = 10 * u.arcsec     # typed coordinates this close to a KNOWN target get its motion
 
+# One display name per KNOWN target. It is also the name of its cache files
+# (cache/frames/<name>.ecsv), whatever alias or coordinates the user typed.
+DISPLAY = {"barnard's star": "Barnard's Star", "wise 0855": "WISE 0855",
+           "epsilon indi b": "Epsilon Indi B", "rw aur": "RW Aur", "r dra": "R Draconis"}
+
 
 def known_target(name):
     """Name -> KNOWN key, or None."""
     key = " ".join(name.strip().lower().split())
     key = ALIASES.get(key, key)
     return key if key in KNOWN else None
+
+
+def known_near(coord):
+    """KNOWN key of the target within MATCH_RADIUS of `coord`, either at its catalogue
+    position or at where it is today (fast movers are far from their catalogue position), or None."""
+    now = Time.now()
+    for key, row in KNOWN.items():
+        known = make_coord(*row)
+        if (coord.separation(SkyCoord(row[0] * u.deg, row[1] * u.deg)) < MATCH_RADIUS or
+                coord.separation(at_time(known, now)) < MATCH_RADIUS):
+            return key
+    return None
+
+
+def target_name(text, coord=None):
+    """The one name used for a target's cache files: the display name of a KNOWN target
+    (found by name, alias, or coordinates close to it), else the text as typed, with
+    spacing and letter case normalised."""
+    key = known_target(text) or (known_near(coord) if coord is not None else None)
+    return DISPLAY[key] if key else re.sub(r"\s+", " ", text.strip().lower())
 
 
 SIMBAD_SERVERS = ["simbad.harvard.edu", "simbad.cds.unistra.fr"]   # Harvard first: CDS is blocked for us
@@ -103,13 +128,11 @@ def resolve_name(name):
 def attach_known_motion(coord):
     """Typed coordinates within MATCH_RADIUS of a KNOWN target -> that target, with its
     proper motion and epoch (typed coordinates carry no motion by themselves)."""
-    for key, row in KNOWN.items():
-        if row[2] == 0 and row[3] == 0:
-            continue
-        if coord.separation(SkyCoord(row[0] * u.deg, row[1] * u.deg)) < MATCH_RADIUS:
-            print(f"  coordinates match {key!r}: using its proper motion (epoch {row[4]})")
-            return make_coord(*row)
-    return coord
+    key = known_near(coord)
+    if key is None or (KNOWN[key][2] == 0 and KNOWN[key][3] == 0):
+        return coord
+    print(f"  coordinates match {key!r}: using its proper motion (epoch {KNOWN[key][4]})")
+    return make_coord(*KNOWN[key])
 
 
 def parse_target(text):
