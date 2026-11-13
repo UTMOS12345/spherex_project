@@ -49,7 +49,7 @@ wavelength_um,flux_mjy,err_mjy,detector,mjd,n_bad,saturated,bad_flags,ok
 2.311,0.630,0.048,3,61169.934,0,False,,True
 2.311,0.564,0.046,3,61156.495,0,False,,True
 2.363,0.568,0.048,3,61171.097,0,False,,True
-2.427,0.000,0.000,4,61162.335,13,False,DICHROIC,False
+2.427,nan,nan,4,61162.335,13,False,DICHROIC,False
 2.476,0.402,0.040,4,61162.336,1,False,NONFUNC,False
 2.543,0.421,0.041,4,61162.338,0,False,,True
 2.611,0.373,0.050,4,61163.284,0,False,,True

@@ -1,0 +1,1 @@
+No usable spectrum for 'R Draconis': it is saturated (too bright) in every image of that visit. The pictures still show it.

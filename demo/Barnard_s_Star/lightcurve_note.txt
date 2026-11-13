@@ -1,0 +1,1 @@
+'Barnard's Star' is saturated (too bright) in every SPHEREx image at 1.3 micron, so its brightness cannot be measured there. The pictures still show it.

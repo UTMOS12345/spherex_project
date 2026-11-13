@@ -57,8 +57,8 @@ wavelength_um,flux_mjy,err_mjy,detector,mjd,n_bad,saturated,bad_flags,ok
 2.322,11.979,0.115,3,61310.323,0,False,,True
 2.365,11.370,0.116,3,61308.218,0,False,,True
 2.374,11.556,0.121,3,61310.658,0,False,,True
-2.414,0.000,0.000,3,61308.220,12,False,DICHROIC,False
-2.420,0.000,0.000,3,61310.659,13,False,DICHROIC,False
+2.414,nan,nan,3,61308.220,12,False,DICHROIC,False
+2.420,nan,nan,3,61310.659,13,False,DICHROIC,False
 3.813,46.362,0.389,5,61312.969,0,False,,True
 3.846,47.618,0.387,5,61313.508,0,False,,True
 3.865,49.069,0.393,5,61311.133,0,False,,True
@@ -73,7 +73,7 @@ wavelength_um,flux_mjy,err_mjy,detector,mjd,n_bad,saturated,bad_flags,ok
 4.088,56.133,0.425,5,61315.477,1,False,NONFUNC,False
 4.105,55.906,0.421,5,61314.053,0,False,,True
 4.123,55.286,0.417,5,61315.479,0,False,,True
-4.140,16.108,0.228,5,61313.034,7,False,"TRANSIENT,SUR_ERROR,NONFUNC",False
+4.140,nan,nan,5,61313.034,7,False,"TRANSIENT,SUR_ERROR,NONFUNC",False
 4.159,54.142,0.416,5,61312.831,0,False,,True
 4.195,44.688,0.389,5,61312.832,0,False,,True
 4.231,35.330,0.345,5,61312.834,0,False,,True
@@ -89,7 +89,7 @@ wavelength_um,flux_mjy,err_mjy,detector,mjd,n_bad,saturated,bad_flags,ok
 4.492,17.323,0.322,6,61305.228,0,False,,True
 4.495,19.725,0.298,6,61310.793,0,False,,True
 4.495,18.878,0.292,6,61310.589,0,False,,True
-4.524,15.399,0.275,6,61305.229,1,True,"SUR_ERROR,PERSIST",False
+4.524,nan,nan,6,61305.229,1,True,"SUR_ERROR,PERSIST",False
 4.528,16.871,0.285,6,61310.795,0,False,,True
 4.557,15.832,0.284,6,61305.231,0,False,,True
 4.560,11.293,0.234,6,61310.796,3,False,TRANSIENT,False
@@ -114,8 +114,8 @@ wavelength_um,flux_mjy,err_mjy,detector,mjd,n_bad,saturated,bad_flags,ok
 4.897,20.330,0.361,6,61308.215,0,False,,True
 4.903,21.322,0.350,6,61310.321,0,False,,True
 4.933,20.783,0.383,6,61308.217,0,False,,True
-4.939,20.375,0.359,6,61310.323,1,True,"SUR_ERROR,NONFUNC",False
+4.939,nan,nan,6,61310.323,1,True,"SUR_ERROR,NONFUNC",False
 4.969,22.116,0.382,6,61308.218,0,False,,True
-4.975,2.075,0.135,6,61310.658,8,False,"TRANSIENT,SUR_ERROR",False
+4.975,nan,nan,6,61310.658,8,False,"TRANSIENT,SUR_ERROR",False
 5.005,22.548,0.384,6,61308.220,0,False,,True
 5.011,21.310,0.394,6,61310.659,0,False,,True

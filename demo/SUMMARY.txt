@@ -1,47 +1,47 @@
 Barnard's Star: 363 frames, 3 visits
-  OK    download cutouts  (1860 s)
-  OK    stack visits (D2)  (4 s)
+  OK    download cutouts  (3 s)
+  OK    stack visits (D2)  (5 s)
   OK    flipbook.gif + difference.png  (2 s)
-  OK    overlay.png (Gaia + WISE)  (53 s)
-        light curve: 11 points, 0 usable
-  OK    lightcurve (1.3 um)  (4 s)
+  OK    overlay.png (Gaia + WISE)  (3 s)
+        light curve: 5 points, 0 usable  ['Barnard's Star' is saturated (too bright) in every SPHEREx image at 1]
+  OK    lightcurve (1.3 um)  (7 s)
         spectrum: 119 points, 1 of 102 channels
-  OK    spectrum (latest visit)  (7 s)
+  OK    spectrum (latest visit)  (15 s)
 WISE 0855: 258 frames, 3 visits
-  OK    download cutouts  (2086 s)
-  OK    stack visits (D6)  (4 s)
-  OK    flipbook.gif + difference.png  (2 s)
-  OK    overlay.png (Gaia + WISE)  (18 s)
-        light curve: 14 points, 12 usable
-  OK    lightcurve (4.5 um)  (9 s)
-        spectrum: 100 points, 79 of 102 channels
-  OK    spectrum (latest visit)  (7 s)
+  OK    download cutouts  (1 s)
+  OK    stack visits (D6)  (2 s)
+  OK    flipbook.gif + difference.png  (1 s)
+  OK    overlay.png (Gaia + WISE)  (3 s)
+        light curve: 4 points, 3 usable  [1 Gaia star(s) inside the 12″ measuring circle (G=16.3 at 6.0″): part ]
+  OK    lightcurve (4.5 um)  (3 s)
+        spectrum: 100 points, 79 of 102 channels  [1 Gaia star(s) inside the 12″ measuring circle (G=16.3 at 4.4″): part ]
+  OK    spectrum (latest visit)  (13 s)
 Epsilon Indi B: 467 frames, 4 visits
-  OK    download cutouts  (2789 s)
-  OK    stack visits (D5)  (9 s)
-  OK    flipbook.gif + difference.png  (2 s)
-  OK    overlay.png (Gaia + WISE)  (62 s)
-        light curve: 21 points, 19 usable
-  OK    lightcurve (4.2 um)  (10 s)
+  OK    download cutouts  (2 s)
+  OK    stack visits (D5)  (4 s)
+  OK    flipbook.gif + difference.png  (1 s)
+  OK    overlay.png (Gaia + WISE)  (4 s)
+        light curve: 3 points, 3 usable
+  OK    lightcurve (4.2 um)  (5 s)
         spectrum: 120 points, 62 of 102 channels
-  OK    spectrum (latest visit)  (7 s)
+  OK    spectrum (latest visit)  (15 s)
 RW Aur: 336 frames, 3 visits
-  OK    download cutouts  (1850 s)
-  OK    stack visits (D1)  (3 s)
+  OK    download cutouts  (1 s)
+  OK    stack visits (D1)  (2 s)
   OK    flipbook.gif + difference.png  (1 s)
-  OK    overlay.png (Gaia + WISE)  (42 s)
-        light curve: 15 points, 13 usable
-  OK    lightcurve (0.9 um)  (4 s)
+  OK    overlay.png (Gaia + WISE)  (3 s)
+        light curve: 4 points, 3 usable
+  OK    lightcurve (0.9 um)  (3 s)
         spectrum: 109 points, 53 of 102 channels
-  OK    spectrum (latest visit)  (6 s)
+  OK    spectrum (latest visit)  (13 s)
 R Draconis: 548 frames, 6 visits
-  OK    download cutouts  (5041 s)
-  OK    stack visits (D3)  (258 s)
+  OK    download cutouts  (1 s)
+  OK    stack visits (D3)  (4 s)
   OK    flipbook.gif + difference.png  (1 s)
-  OK    overlay.png (Gaia + WISE)  (24 s)
-        light curve: 17 points, 0 usable
-  OK    lightcurve (2.2 um)  (6 s)
-        spectrum: 76 points, 0 of 102 channels
-  OK    spectrum (latest visit)  (5 s)
+  OK    overlay.png (Gaia + WISE)  (4 s)
+        light curve: 1 points, 0 usable  ['R Draconis' is saturated (too bright) in every SPHEREx image at 2.2 m]
+  OK    lightcurve (2.2 um)  (10 s)
+        spectrum: 76 points, 0 of 102 channels  [No usable spectrum for 'R Draconis': it is saturated (too bright) in e]
+  OK    spectrum (latest visit)  (9 s)
 
-total time 236.8 min
+total time 2.3 min
