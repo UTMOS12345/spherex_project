@@ -37,6 +37,8 @@ from .plots import plot_light_curve_simple, plot_spectrum, plot_spectra_visits
 from .spectrum import spectrum, bin_to_channels
 from .targets import parse_target, at_time, has_pm, known_target, target_name
 from .wise import wise_overlay
+from . import net
+from .net import set_demo_mode            # api.set_demo_mode(True): cached data only, no hangs
 
 MAX_FOV = 10.0            # arcmin served from the standard downloads
 _memory = {}              # stacks already made in this process: key -> list of epochs
@@ -51,6 +53,11 @@ DEMO_DEFAULTS = {
     "R Draconis":     dict(detector="D3", band=2.2, tol=0.10),   # pulsating red giant; saturated
 }
 OTHER_DEFAULTS = dict(detector="D2", band=1.6, tol=0.05)
+
+
+def demo_mode():
+    """True when demo mode is on (no downloads; one short try per server call)."""
+    return net.DEMO_MODE
 
 
 def defaults(text):

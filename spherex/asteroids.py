@@ -16,12 +16,16 @@ def known_asteroids(center, radius_deg, t):
     """Known solar-system objects within radius_deg of center at Time t ->
     Table (name, type, ra, dec, v_mag); empty table when there are none."""
     from astroquery.imcce import Skybot
-    try:
-        res = with_retries(Skybot.cone_search, center, radius_deg * u.deg, t, tries=2)
-    except Exception as e:
-        if "No solar system object" in str(e) or "no object" in str(e).lower():
-            return Table(names=["name", "type", "ra", "dec", "v_mag"], dtype=[str, str, float, float, float])
-        raise
+    def search():
+        try:
+            return Skybot.cone_search(center, radius_deg * u.deg, t)
+        except RuntimeError as e:          # "No solar system object was found": an answer, not a failure
+            if "no solar system object" in str(e).lower() or "no object" in str(e).lower():
+                return None
+            raise
+    res = with_retries(search, tries=2)
+    if res is None:
+        return Table(names=["name", "type", "ra", "dec", "v_mag"], dtype=[str, str, float, float, float])
     cols = {c.lower(): c for c in res.colnames}
     ra = np.asarray(u.Quantity(res[cols["ra"]]).to(u.deg).value, float)
     dec = np.asarray(u.Quantity(res[cols["dec"]]).to(u.deg).value, float)

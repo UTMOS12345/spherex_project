@@ -7,6 +7,7 @@ from astropy.io import fits
 from astropy.time import Time
 from astropy.utils.data import download_file
 
+from . import net
 from .net import with_retries
 from .targets import at_time
 
@@ -82,6 +83,8 @@ def get_cutout(url, center, size_deg=0.1, tries=6):
     path = find_cached(url, center, size_deg)
     if path is not None and is_valid_fits(path):
         return path
+    if net.DEMO_MODE:            # callers catch OSError and skip the frame
+        raise OSError("not in cache/ (demo mode: no downloads)")
     fetch = max(size_deg, DOWNLOAD_DEG)
     path = cache_path(url, center, fetch)
     path.parent.mkdir(parents=True, exist_ok=True)

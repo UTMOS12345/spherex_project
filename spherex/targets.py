@@ -1,11 +1,14 @@
 """Lesson 2 - turn user text into a SkyCoord (with proper motion), and time helpers."""
 import re
+from functools import lru_cache
 
 import numpy as np
 import astropy.units as u
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
 from astroquery.simbad import SimbadClass
+
+from .net import with_retries
 
 J2000 = Time(51544.5, format="mjd", scale="tt")    # don't use Time("J2000"): misparsed on some versions
 
@@ -104,22 +107,25 @@ def _num(v):
     return None if np.ma.is_masked(v) else float(v)
 
 
+@lru_cache(maxsize=256)
 def resolve_name(name):
     """Name -> SkyCoord. The challenge targets come from KNOWN (position, motion and epoch
-    checked); other names from SIMBAD (Harvard, then CDS), then Sesame."""
+    checked); other names from SIMBAD (Harvard, then CDS), then Sesame.
+    Answers are remembered for the life of the process (the app asks on every rerun);
+    failures are not, so a name that failed offline is tried again later."""
     key = known_target(name)
     if key:
         return make_coord(*KNOWN[key])
     for server in SIMBAD_SERVERS:
         try:
-            r = _simbad_for(server).query_object(name)
+            r = with_retries(lambda: _simbad_for(server).query_object(name), tries=1)
             if r is not None and len(r) > 0:
                 return make_coord(float(r["ra"][0]), float(r["dec"][0]),
                                   _num(r["pmra"][0]), _num(r["pmdec"][0]))
         except Exception as e:
             print(f"  SIMBAD {server} failed: {type(e).__name__}")
     try:
-        return SkyCoord.from_name(name)          # position only, no proper motion
+        return with_retries(SkyCoord.from_name, name, tries=1)   # position only, no proper motion
     except Exception as e:
         print(f"  Sesame failed: {type(e).__name__}")
     raise ValueError(f"Could not resolve name: {name!r}")

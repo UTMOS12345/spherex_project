@@ -142,7 +142,7 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
     epochs = []
     for e in sorted(set(frames["epoch"])):
         rows = frames[(frames["epoch"] == e) & np.isin(frames["detector"], dets)]
-        stacks, coverages, used, have = [], [], 0, []
+        stacks, coverages, used, have, skipped = [], [], 0, [], {}
         for d in dets:
             paths = []
             for row in rows[rows["detector"] == d]:
@@ -150,13 +150,15 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
                 try:
                     paths.append(get_cutout(row["access_url"], center, size_deg))
                 except OSError as err:
-                    print(f"  epoch {e}: skipped {row['obs_id']} {d} ({err})")
+                    skipped[str(err)] = skipped.get(str(err), 0) + 1
             if paths:
                 st, cov, n = stack_epoch(paths, grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range,
                                     return_count=True)
                 if n == 0:
                     continue                              # no frame of this detector saw the range
                 stacks.append(st); coverages.append(cov); used += n; have.append(d)
+        for reason, count in skipped.items():
+            print(f"  epoch {e}: skipped {count} frame(s): {reason}")
         if not stacks or all(np.isnan(x).all() for x in stacks):
             continue
         with warnings.catch_warnings():

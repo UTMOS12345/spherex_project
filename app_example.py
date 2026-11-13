@@ -38,7 +38,12 @@ with st.sidebar:
     fov = st.slider("Field of view (arcmin)", 2.0, api.MAX_FOV, url_float("fov", 4.0, 2.0, api.MAX_FOV), 0.5)
     mode = st.selectbox("Video", ["normal", "difference", "minusmean"])
     fps = st.slider("Speed (pictures per second)", 1, 8, 3)
-    st.caption("First search of a new target downloads images and can take minutes.")
+    demo = st.checkbox("Demo mode: cached data only", value=True,
+                       help="No downloads and no long waits: frames not in cache/ are skipped. "
+                            "Untick to fetch new targets from IRSA (minutes).")
+    api.set_demo_mode(demo)
+    st.caption("Demo mode is on: only data already in cache/ is shown." if demo else
+               "First search of a new target downloads images and can take minutes.")
 st.query_params.update(target=text, detector=detector, fov=str(fov), wl=wl)   # shareable link
 
 
@@ -59,7 +64,7 @@ def guarded(fn):
 
 
 @st.cache_data(show_spinner=False)
-def cached_flipbook(text, detector, fov, mode, fps, wl):
+def cached_flipbook(text, detector, fov, mode, fps, wl, demo):     # demo: part of the cache key
     return api.flipbook(text, detector or None, fov, mode, fps, wl or None)
 
 
@@ -73,7 +78,7 @@ def header():
 
 def video():
     with st.spinner("Building the video..."):
-        st.image(cached_flipbook(text, detector, fov, mode, fps, wl))
+        st.image(cached_flipbook(text, detector, fov, mode, fps, wl, demo))
 
 
 def pictures():

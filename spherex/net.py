@@ -1,19 +1,49 @@
-"""Network helper shared by every module that talks to a server."""
+"""Network helper shared by every module that talks to a server, and the demo-mode switch."""
+import os
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from urllib.error import HTTPError
 
 from astropy.utils.data import conf
 
-conf.remote_timeout = 15            # seconds before a silent server counts as failed
-
 RETRY_CODES = {429, 500, 502, 503, 504}   # "busy, try later"; 404/400 are never retried
+
+# Demo mode (for a live presentation): no cutout downloads (frames not in cache/ are skipped),
+# and every server call gets ONE try with a hard deadline, so nothing can hang the app.
+DEMO_MODE = False
+DEMO_DEADLINE_S = 20                      # longest any single server call may take in demo mode
+_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="spherex-net")
+
+
+def set_demo_mode(on):
+    """Switch demo mode on or off for this process (also set by SPHEREX_DEMO=1)."""
+    global DEMO_MODE
+    DEMO_MODE = bool(on)
+    conf.remote_timeout = 8 if DEMO_MODE else 15    # seconds before a silent server counts as failed
+
+
+set_demo_mode(os.environ.get("SPHEREX_DEMO", "0") == "1")
+
+
+def _call(fn, args, kwargs):
+    if not DEMO_MODE:
+        return fn(*args, **kwargs)
+    # pyvo (IRSA SIA/TAP) has no timeout of its own: wait at most DEMO_DEADLINE_S for it.
+    # A call that overruns keeps running in its worker thread, but the app moves on.
+    try:
+        return _pool.submit(fn, *args, **kwargs).result(timeout=DEMO_DEADLINE_S)
+    except FutureTimeout:
+        raise TimeoutError(f"no answer within {DEMO_DEADLINE_S} s")
 
 
 def with_retries(fn, *args, tries=5, **kwargs):
-    """Call fn(*args, **kwargs); on network errors wait 5, 10, 20, 40, 60 s and retry."""
+    """Call fn(*args, **kwargs); on network errors wait 5, 10, 20, 40, 60 s and retry.
+    In demo mode: one try only, with a deadline."""
+    if DEMO_MODE:
+        tries = 1
     for attempt in range(tries):
         try:
-            return fn(*args, **kwargs)
+            return _call(fn, args, kwargs)
         except HTTPError as e:
             if e.code not in RETRY_CODES:
                 raise                                   # wrong request: retrying won't help
