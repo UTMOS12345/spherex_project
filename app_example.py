@@ -110,6 +110,8 @@ def light_curve():
         with st.spinner("Measuring..."):
             fig, table = api.light_curve_figure(text, band, tol)
         show(fig)
+        if "warning" in table.meta:
+            st.warning(table.meta["warning"])
         st.dataframe(table.to_pandas())
 
 
@@ -119,6 +121,8 @@ def spectrum():
         with st.spinner("Measuring all 102 channels..."):
             fig, table = api.spectrum_figure(text, all_visits=every)
         show(fig)
+        if "warning" in table.meta:
+            st.warning(table.meta["warning"])
         st.dataframe(table.to_pandas())
 
 

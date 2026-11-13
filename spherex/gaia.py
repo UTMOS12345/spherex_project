@@ -56,6 +56,11 @@ def gaia_overlay(center, radius_deg, t):
     """Gaia DR3 stars around `center`, with each star moved to where it is at Time t.
     Adds columns: ra_t, dec_t (degrees, at time t) and pm_total (mas/yr)."""
     stars = gaia_stars(center, radius_deg)
+    if len(stars) == 0:              # e.g. no CatWISE source in a bright star's halo
+        stars = stars.copy()
+        for col in ("ra_t", "dec_t", "pm_total"):
+            stars[col] = np.zeros(0)
+        return stars
     pmra = np.nan_to_num(np.asarray(stars["pmra"], float))       # no proper motion known -> 0
     pmdec = np.nan_to_num(np.asarray(stars["pmdec"], float))
     c = SkyCoord(np.asarray(stars["ra"], float) * u.deg, np.asarray(stars["dec"], float) * u.deg,
@@ -69,17 +74,21 @@ def gaia_overlay(center, radius_deg, t):
 
 
 def draw_gaia(ax, stars, wcs, shape, min_pm=50, arrow_years=5, color="cyan", fast_color="yellow",
-              marker="o"):
+              marker="o", min_snr=5):
     """Draw catalogue stars (Gaia, or WISE from wise.py) on a matplotlib image axis.
     Needs columns ra_t, dec_t (deg, at time t), pmra, pmdec, pm_total (mas/yr).
     Every star: small marker at its position at time t.
     Stars faster than min_pm (mas/yr): bigger marker + arrow showing where they will be
-    arrow_years later. Returns how many stars fell on the image."""
+    arrow_years later. If the table has a pm_snr column (WISE), a star also needs
+    pm_snr >= min_snr to count as fast, so noisy catalogue motions get no arrow.
+    Returns how many stars fell on the image."""
     ny, nx = shape
     pos = SkyCoord(stars["ra_t"] * u.deg, stars["dec_t"] * u.deg)
     x, y = wcs.world_to_pixel(pos)
     on = (x >= 0) & (x < nx) & (y >= 0) & (y < ny)
     fast = on & (np.asarray(stars["pm_total"]) >= min_pm)
+    if "pm_snr" in stars.colnames:
+        fast &= np.asarray(stars["pm_snr"], float) >= min_snr
     ax.scatter(x[on & ~fast], y[on & ~fast], s=40, marker=marker, facecolors="none", edgecolors=color, lw=0.6)
     ax.scatter(x[fast], y[fast], s=160, marker=marker, facecolors="none", edgecolors=fast_color, lw=1.2)
     for row, x0, y0 in zip(stars[fast], x[fast], y[fast]):

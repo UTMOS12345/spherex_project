@@ -276,11 +276,43 @@ def picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=
 
 
 # ------------------------------------------------------------------ 4. overlays
+HALO_G = 10.0              # Gaia stars brighter than this that CatWISE lacks are saturated in WISE
+HALO_ARCSEC = 150.0        # ... and around them CatWISE lists fake "significant" motions
+
+
+def _distrust_halo_motions(wise_stars, center, radius, t):
+    """Set pm_snr = 0 (no arrow) for WISE sources within HALO_ARCSEC of a Gaia star brighter
+    than HALO_G that has no CatWISE counterpart within 3": such a star is saturated in WISE,
+    and its halo is full of spurious sources with large motions (89 at >= 5 sigma around
+    Barnard's Star). Returns how many bright halo stars were found (0 if Gaia is unavailable)."""
+    if not len(wise_stars) or "pm_snr" not in wise_stars.colnames:
+        return 0
+    try:
+        gaia = gaia_overlay(center, radius, t)
+    except Exception:
+        return 0
+    bright = gaia[np.nan_to_num(np.asarray(gaia["phot_g_mean_mag"], float), nan=99) < HALO_G]
+    if not len(bright):
+        return 0
+    w = SkyCoord(wise_stars["ra_t"] * u.deg, wise_stars["dec_t"] * u.deg)
+    n = 0
+    for star in bright:
+        s = SkyCoord(star["ra_t"] * u.deg, star["dec_t"] * u.deg)
+        sep = w.separation(s).arcsec
+        if (sep < 3).any():
+            continue                                   # CatWISE measured it: not saturated
+        wise_stars["pm_snr"][sep < HALO_ARCSEC] = 0.0
+        n += 1
+    return n
+
+
 def overlay_figure(text, detector="D2", fov=4.0, visit=-1, gaia=True, wise=True, asteroids=False,
                    min_pm=50, arrow_years=5):
     """A visit's picture with catalogue overlays -> (figure, notes).
-    notes is a dict: what was drawn, what failed, and the verdict for the target
-    ('in_gaia', 'in_wise', 'nearest_gaia_arcsec', 'nearest_wise_arcsec', 'verdict')."""
+    notes is a dict: what was drawn, what failed, and a catalogue check for the target
+    ('in_gaia', 'in_wise', 'nearest_gaia_arcsec', 'nearest_wise_arcsec', 'verdict').
+    The verdict only says which catalogues have a source within 3 arcsec - not whether
+    SPHEREx detects anything. WISE motions get an arrow only when measured at >= 5 sigma."""
     target, _, eps = _epochs(text, detector, fov)
     ep = _pick(eps, visit)
     t = Time(ep["mjd"], format="mjd")
@@ -297,6 +329,8 @@ def overlay_figure(text, detector="D2", fov=4.0, visit=-1, gaia=True, wise=True,
             continue
         try:
             stars = fn(center, radius, t)
+            if name == "wise":
+                notes["wise_halo_stars"] = _distrust_halo_motions(stars, center, radius, t)
             draw_gaia(ax, stars, ep["wcs"], shape, min_pm=min_pm, arrow_years=arrow_years, **kw)
             notes["drawn"].append(name)
             if len(stars):
@@ -315,15 +349,61 @@ def overlay_figure(text, detector="D2", fov=4.0, visit=-1, gaia=True, wise=True,
         except Exception as e:
             notes["failed"].append(f"asteroids: {type(e).__name__}")
     if "in_gaia" in notes and "in_wise" in notes:
-        notes["verdict"] = ("known star (in Gaia)" if notes["in_gaia"] else
-                            "known cold or faint object (in WISE, not in Gaia)" if notes["in_wise"] else
-                            "not in Gaia or WISE at this position: worth a closer look")
+        where = "the target's predicted position" if has_pm(target) else "this position"
+        notes["verdict"] = (
+            f"Catalogue check: a Gaia DR3 source lies within 3″ of {where} (a known star)."
+            if notes["in_gaia"] else
+            f"Catalogue check: a CatWISE2020 source lies within 3″ of {where}, none in Gaia "
+            "(a known object that is faint or cold in visible light)." if notes["in_wise"] else
+            f"Catalogue check: no Gaia DR3 or CatWISE2020 source within 3″ of {where}. This is "
+            "not a detection: look at the pictures to see whether SPHEREx shows anything there. "
+            "Very bright stars and fast movers can be missing from these catalogues.")
     ax.set_title(f"{text}  {ep['detector']}  {ep['date']}\ncircles = Gaia, squares = WISE, "
                  f"arrows = next {arrow_years:g} years, green = target", fontsize=9)
     return fig, notes
 
 
 # ------------------------------------------------------------------ 5. measurements
+APERTURE_ARCSEC = 2 * 6.15          # measure_frame's r_px=2 on 6.15" SPHEREx pixels
+SELF_MATCH_ARCSEC = 2.0             # a Gaia source this close to the target is the target itself
+
+
+def _neighbour_warning(target, mjd):
+    """Gaia stars inside the measuring circle around the target on date `mjd` -> warning text,
+    or None. Their light is added to the target's, most at short wavelengths. A catalogue that
+    cannot be reached gives no warning (the measurement is still shown)."""
+    t = Time(float(mjd), format="mjd")
+    pos = at_time(target, t)
+    try:
+        stars = gaia_overlay(pos, 0.01, t)
+    except Exception:
+        return None
+    if not len(stars):
+        return None
+    sep = SkyCoord(stars["ra_t"] * u.deg, stars["dec_t"] * u.deg).separation(pos).arcsec
+    g = np.asarray(stars["phot_g_mean_mag"], float)
+    near = (sep > SELF_MATCH_ARCSEC) & (sep < APERTURE_ARCSEC)
+    own = g[(sep <= SELF_MATCH_ARCSEC) & np.isfinite(g)]
+    if len(own):                     # target in Gaia: only neighbours worth >= 10% of its light count
+        near &= g < own.min() + 2.5
+    if not near.any():
+        return None
+    mags = g[near]
+    parts = [f"G={g:.1f} at {d:.1f}″" for d, g in sorted(zip(sep[near], mags))]
+    return (f"{int(near.sum())} Gaia star(s) inside the {APERTURE_ARCSEC:.0f}″ measuring circle "
+            f"({', '.join(parts)}): part of the light measured comes from them, mostly at short "
+            "wavelengths. Treat these brightnesses as upper limits.")
+
+
+def _with_warning(fig, table, warning):
+    """Put a neighbour warning on the figure (bottom line) and in table.meta['warning']."""
+    if warning:
+        table.meta["warning"] = warning
+        fig.subplots_adjust(bottom=max(fig.subplotpars.bottom, 0.22))
+        fig.text(0.01, 0.01, "⚠ " + warning, fontsize=7, color="#eda100", ha="left", va="bottom", wrap=True)
+    return fig, table
+
+
 def light_curve_figure(text, band=1.6, tol=0.02):
     """Brightness over time at one wavelength (micron) -> (figure, table).
     Table columns: date, wavelength_um, flux_mjy, err_mjy, detector, n_bad, saturated, bad_flags, ok.
@@ -335,7 +415,8 @@ def light_curve_figure(text, band=1.6, tol=0.02):
     if not lc["ok"].any() and lc["saturated"].all():
         raise ValueError(f"'{text}' is saturated (too bright) in every SPHEREx image at {band} micron, "
                          "so its brightness cannot be measured there. The pictures still show it.")
-    return plot_light_curve_simple(lc, f"{text}: brightness at {band:g} ± {tol:g} µm"), lc
+    fig = plot_light_curve_simple(lc, f"{text}: brightness at {band:g} ± {tol:g} µm")
+    return _with_warning(fig, lc, _neighbour_warning(target, np.median(lc["mjd"])))
 
 
 def spectrum_figure(text, visit=-1, all_visits=False):
@@ -356,7 +437,8 @@ def spectrum_figure(text, visit=-1, all_visits=False):
             raise ValueError(f"No usable spectrum for '{text}' in any visit (saturated, or every "
                              "measurement has flagged pixels). The pictures still show it.")
         from astropy.table import vstack
-        return plot_spectra_visits(per, f"{text}: spectrum of every visit"), vstack(tables)
+        return _with_warning(plot_spectra_visits(per, f"{text}: spectrum of every visit"), vstack(tables),
+                             _neighbour_warning(target, np.median(frames["mjd"])))
     try:
         sub = frames[frames["epoch"] == ids[visit]]
     except IndexError:
@@ -370,7 +452,7 @@ def spectrum_figure(text, visit=-1, all_visits=False):
                else "every measurement has flagged pixels")
         raise ValueError(f"No usable spectrum for '{text}': {why}. The pictures still show it.")
     fig = plot_spectrum(spec, binned, f"{text}: spectrum, visit of {sub['date'][0][:10]}", log="auto")
-    return fig, binned
+    return _with_warning(fig, binned, _neighbour_warning(target, np.median(sub["mjd"])))
 
 
 # ------------------------------------------------------------------ 6. contamination flags
