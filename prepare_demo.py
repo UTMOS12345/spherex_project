@@ -28,14 +28,11 @@ from spherex import (parse_detectors, parse_target, at_time, load_or_find_frames
                      draw_gaia, light_curve, plot_light_curve_simple, spectrum, bin_to_channels,
                      epoch_frames, plot_spectrum, set_style)
 
+from spherex.api import DEMO_DEFAULTS
+
 # What to show for each target: the detector for pictures, the wavelength for the light curve.
-TARGETS = {
-    "Barnard's Star": dict(detector="D2", band=1.3, tol=0.05),   # moves fast; saturated -> no fluxes
-    "WISE 0855":      dict(detector="D6", band=4.5, tol=0.10),   # cold brown dwarf: only seen at 4-5 um
-    "Epsilon Indi B": dict(detector="D5", band=4.2, tol=0.10),   # brown dwarf pair, fast mover
-    "RW Aur":         dict(detector="D1", band=0.9, tol=0.05),   # variable; saturates at 1.6 um
-    "R Draconis":     dict(detector="D3", band=2.2, tol=0.10),   # pulsating red giant; may saturate
-}
+# Shared with the app (spherex.api.DEMO_DEFAULTS), so the app's defaults are what is cached.
+TARGETS = DEMO_DEFAULTS
 FIELD_ARCMIN = 4.0          # width of the pictures
 OUT = Path("demo")
 

@@ -41,6 +41,27 @@ from .wise import wise_overlay
 MAX_FOV = 10.0            # arcmin served from the standard downloads
 _memory = {}              # stacks already made in this process: key -> list of epochs
 
+# Settings whose images prepare_demo.py downloads for the challenge targets: with these the
+# app runs from cache/ without downloads. prepare_demo.py reads this table too.
+DEMO_DEFAULTS = {
+    "Barnard's Star": dict(detector="D2", band=1.3, tol=0.05),   # moves fast; saturated -> no fluxes
+    "WISE 0855":      dict(detector="D6", band=4.5, tol=0.10),   # cold brown dwarf: only seen at 4-5 um
+    "Epsilon Indi B": dict(detector="D5", band=4.2, tol=0.10),   # brown dwarf pair, fast mover
+    "RW Aur":         dict(detector="D1", band=0.9, tol=0.05),   # variable; saturates at 1.6 um
+    "R Draconis":     dict(detector="D3", band=2.2, tol=0.10),   # pulsating red giant; saturated
+}
+OTHER_DEFAULTS = dict(detector="D2", band=1.6, tol=0.05)
+
+
+def defaults(text):
+    """Suggested detector, light-curve band and tolerance for a target -> dict.
+    For the five challenge targets these are the settings already in cache/."""
+    try:
+        name = target_name(text, parse_target(text))
+    except ValueError:
+        return dict(OTHER_DEFAULTS)
+    return dict(DEMO_DEFAULTS.get(name, OTHER_DEFAULTS))
+
 
 # ------------------------------------------------------------------ helpers
 def _parse(text):
