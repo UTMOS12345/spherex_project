@@ -46,13 +46,15 @@ _memory = {}              # stacks already made in this process: key -> list of 
 # Settings whose images prepare_demo.py downloads for the challenge targets: with these the
 # app runs from cache/ without downloads. prepare_demo.py reads this table too.
 DEMO_DEFAULTS = {
-    "Barnard's Star": dict(detector="D2", band=1.3, tol=0.05),   # moves fast; saturated -> no fluxes
-    "WISE 0855":      dict(detector="D6", band=4.5, tol=0.10),   # cold brown dwarf: only seen at 4-5 um
-    "Epsilon Indi B": dict(detector="D5", band=4.2, tol=0.10),   # brown dwarf pair, fast mover
-    "RW Aur":         dict(detector="D1", band=0.9, tol=0.05),   # variable; saturates at 1.6 um
-    "R Draconis":     dict(detector="D3", band=2.2, tol=0.10),   # pulsating red giant; saturated
+    "Barnard's Star": dict(detector="D2", band=1.3, tol=0.02),   # moves fast; saturated -> no fluxes
+    "WISE 0855":      dict(detector="D6", band=4.5, tol=0.02),   # cold brown dwarf: only seen at 4-5 um
+    "Epsilon Indi B": dict(detector="D5", band=4.2, tol=0.02),   # brown dwarf pair, fast mover
+    "RW Aur":         dict(detector="D1", band=0.9, tol=0.02),   # variable; saturates at 1.6 um
+    "R Draconis":     dict(detector="D3", band=2.2, tol=0.02),   # pulsating red giant; saturated
 }
-OTHER_DEFAULTS = dict(detector="D2", band=1.6, tol=0.05)
+OTHER_DEFAULTS = dict(detector="D2", band=1.6, tol=0.02)
+# tol 0.02 um: a wider window mixes wavelengths, and across a steep spectrum that looks like
+# variability (Epsilon Indi B: 57 vs 35 mJy at 4.10 vs 4.25 um in ONE visit).
 
 
 def demo_mode():
@@ -322,13 +324,17 @@ def overlay_figure(text, detector="D2", fov=4.0, visit=-1, gaia=True, wise=True,
 
 
 # ------------------------------------------------------------------ 5. measurements
-def light_curve_figure(text, band=1.6, tol=0.05):
+def light_curve_figure(text, band=1.6, tol=0.02):
     """Brightness over time at one wavelength (micron) -> (figure, table).
-    Table columns: date, wavelength_um, flux_mjy, err_mjy, detector, n_bad, saturated, bad_flags, ok."""
+    Table columns: date, wavelength_um, flux_mjy, err_mjy, detector, n_bad, saturated, bad_flags, ok.
+    Keep tol small: a wide window mixes wavelengths, which can look like variability."""
     target, frames = _load(text)
     lc = light_curve(frames, target, band, tol_um=tol)
     if len(lc) == 0:
         raise ValueError(f"No image has '{text}' at {band} ± {tol} micron. Try a wider tolerance.")
+    if not lc["ok"].any() and lc["saturated"].all():
+        raise ValueError(f"'{text}' is saturated (too bright) in every SPHEREx image at {band} micron, "
+                         "so its brightness cannot be measured there. The pictures still show it.")
     return plot_light_curve_simple(lc, f"{text}: brightness at {band:g} ± {tol:g} µm"), lc
 
 
@@ -347,7 +353,8 @@ def spectrum_figure(text, visit=-1, all_visits=False):
             if len(b):
                 b = b.copy(); b["visit"] = int(e); tables.append(b)
         if not tables:
-            raise ValueError(f"No usable spectrum for '{text}' (saturated or too faint).")
+            raise ValueError(f"No usable spectrum for '{text}' in any visit (saturated, or every "
+                             "measurement has flagged pixels). The pictures still show it.")
         from astropy.table import vstack
         return plot_spectra_visits(per, f"{text}: spectrum of every visit"), vstack(tables)
     try:
@@ -358,6 +365,10 @@ def spectrum_figure(text, visit=-1, all_visits=False):
     binned = bin_to_channels(spec)
     if len(spec) == 0:
         raise ValueError(f"No spectrum could be measured for '{text}' in that visit.")
+    if len(binned) == 0:
+        why = ("it is saturated (too bright) in every image of that visit" if spec["saturated"].mean() > 0.5
+               else "every measurement has flagged pixels")
+        raise ValueError(f"No usable spectrum for '{text}': {why}. The pictures still show it.")
     fig = plot_spectrum(spec, binned, f"{text}: spectrum, visit of {sub['date'][0][:10]}", log="auto")
     return fig, binned
 
