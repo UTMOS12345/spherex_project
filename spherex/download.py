@@ -7,10 +7,20 @@ from astropy.io import fits
 from astropy.time import Time
 from astropy.utils.data import download_file
 
+from . import net
 from .net import with_retries
 from .targets import at_time
 
 CACHE_DIR = Path("cache/cutouts")
+
+# Every download is at least this big (degrees). Smaller views are then made from the same
+# file, so changing the field of view later never needs a new download. 0.25 deg = 15'
+# (a north-up view of up to ~10' fits inside, whatever the frame's rotation).
+DOWNLOAD_DEG = 0.25
+
+# Layers dropped before saving: the PSF cube is ~5 MB per file, ~95% of a cutout, and
+# nothing in this project uses it. WCS-WAVE (the wavelength map) is kept.
+DROP_LAYERS = ("PSF", "EPSF")
 
 
 def cutout_url(url, center, size_deg):
@@ -34,25 +44,51 @@ def is_valid_fits(path):
 
 
 def _download_checked(url, dest):
-    """Download to a temp file, verify it, then move it into the cache."""
+    """Download to a temp file, verify it, drop the unused PSF layer, then move it into the cache."""
     tmp = download_file(url, cache=False, timeout=120, show_progress=False)
     try:
         if not is_valid_fits(tmp):
             raise OSError("downloaded file is not valid FITS")
-        shutil.move(tmp, dest)
+        with fits.open(tmp) as h:
+            keep = fits.HDUList([hdu.copy() for hdu in h if hdu.name not in DROP_LAYERS])
+            keep.writeto(str(tmp) + ".small", overwrite=True)
+        shutil.move(str(tmp) + ".small", dest)
     finally:
+        if os.path.exists(str(tmp) + ".small"):
+            os.remove(str(tmp) + ".small")
         if os.path.exists(tmp):
             os.remove(tmp)
     return dest
 
 
+def find_cached(url, center, size_deg):
+    """Path of a cached cutout of this frame and centre that is at least size_deg big
+    (the smallest such file), or None."""
+    stem = cache_path(url, center, 0).name.rsplit("_", 1)[0]          # name without the size
+    best = None
+    for p in CACHE_DIR.glob(stem + "_*.fits"):
+        try:
+            size = float(p.stem.rsplit("_", 1)[1])
+        except ValueError:
+            continue
+        if size >= size_deg - 1e-9 and (best is None or size < best[0]):
+            best = (size, p)
+    return best[1] if best else None
+
+
 def get_cutout(url, center, size_deg=0.1, tries=6):
-    """Frame URL + SkyCoord centre -> local path of the cutout (downloads only if not cached)."""
-    path = cache_path(url, center, size_deg)
-    if path.exists() and is_valid_fits(path):
+    """Frame URL + SkyCoord centre -> local path of a cutout at least size_deg big.
+    Uses any cached file that is big enough; otherwise downloads max(size_deg, DOWNLOAD_DEG),
+    so later requests with a different field of view are served from the same file."""
+    path = find_cached(url, center, size_deg)
+    if path is not None and is_valid_fits(path):
         return path
+    if net.DEMO_MODE:            # callers catch OSError and skip the frame
+        raise OSError("not in cache/ (demo mode: no downloads)")
+    fetch = max(size_deg, DOWNLOAD_DEG)
+    path = cache_path(url, center, fetch)
     path.parent.mkdir(parents=True, exist_ok=True)
-    return with_retries(_download_checked, cutout_url(url, center, size_deg), path, tries=tries)
+    return with_retries(_download_checked, cutout_url(url, center, fetch), path, tries=tries)
 
 
 def prefetch(frames, target, size_deg=0.1, limit=None):
@@ -62,7 +98,7 @@ def prefetch(frames, target, size_deg=0.1, limit=None):
     rows = frames if limit is None else frames[:limit]
     for i, row in enumerate(rows):
         center = at_time(target, Time(row["mjd"], format="mjd"))
-        cached = cache_path(row["access_url"], center, size_deg).exists()
+        cached = find_cached(row["access_url"], center, size_deg) is not None
         try:
             get_cutout(row["access_url"], center, size_deg)
             hit += cached

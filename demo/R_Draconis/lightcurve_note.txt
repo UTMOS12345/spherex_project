@@ -1,0 +1,1 @@
+'R Draconis' is saturated (too bright) in every SPHEREx image at 2.2 micron, so its brightness cannot be measured there. The pictures still show it.

@@ -1,0 +1,1 @@
+Catalogue check: a Gaia DR3 source lies within 3″ of this position (a known star).

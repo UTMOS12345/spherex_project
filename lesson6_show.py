@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 from astropy.time import Time
 from astropy.visualization import ZScaleInterval, AsinhStretch, ImageNormalize
 
-from spherex import (parse_target, at_time, load_or_find_frames, assign_epochs, make_epochs,
+from spherex import (parse_detectors, parse_target, at_time, load_or_find_frames, assign_epochs, make_epochs,
                      stack_epoch, get_cutout, clean_frame)
 
 
@@ -44,7 +44,7 @@ cmap.set_bad("red")                                   # missing pixels show in r
 
 # ---------- picture 1: the steps, for the first frame of the first epoch ----------
 ep = epochs[0]
-row = frames[(frames["epoch"] == ep["epoch"]) & (frames["detector"] == a.detector)][0]
+row = frames[(frames["epoch"] == ep["epoch"]) & np.isin(frames["detector"], parse_detectors(a.detector))][0]
 path = get_cutout(row["access_url"], at_time(target, Time(row["mjd"], format="mjd")), a.size)
 f = clean_frame(path)
 one, _ = stack_epoch([path], ep["wcs"], ep["image"].shape, keep_saturated_stars=False)

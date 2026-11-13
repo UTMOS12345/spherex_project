@@ -1,11 +1,15 @@
 """Lesson 2 - turn user text into a SkyCoord (with proper motion), and time helpers."""
 import re
+import time
+from functools import lru_cache
 
 import numpy as np
 import astropy.units as u
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
 from astroquery.simbad import SimbadClass
+
+from .net import with_retries
 
 J2000 = Time(51544.5, format="mjd", scale="tt")    # don't use Time("J2000"): misparsed on some versions
 
@@ -30,12 +34,37 @@ ALIASES = {
 }
 MATCH_RADIUS = 10 * u.arcsec     # typed coordinates this close to a KNOWN target get its motion
 
+# One display name per KNOWN target. It is also the name of its cache files
+# (cache/frames/<name>.ecsv), whatever alias or coordinates the user typed.
+DISPLAY = {"barnard's star": "Barnard's Star", "wise 0855": "WISE 0855",
+           "epsilon indi b": "Epsilon Indi B", "rw aur": "RW Aur", "r dra": "R Draconis"}
+
 
 def known_target(name):
     """Name -> KNOWN key, or None."""
     key = " ".join(name.strip().lower().split())
     key = ALIASES.get(key, key)
     return key if key in KNOWN else None
+
+
+def known_near(coord):
+    """KNOWN key of the target within MATCH_RADIUS of `coord`, either at its catalogue
+    position or at where it is today (fast movers are far from their catalogue position), or None."""
+    now = Time.now()
+    for key, row in KNOWN.items():
+        known = make_coord(*row)
+        if (coord.separation(SkyCoord(row[0] * u.deg, row[1] * u.deg)) < MATCH_RADIUS or
+                coord.separation(at_time(known, now)) < MATCH_RADIUS):
+            return key
+    return None
+
+
+def target_name(text, coord=None):
+    """The one name used for a target's cache files: the display name of a KNOWN target
+    (found by name, alias, or coordinates close to it), else the text as typed, with
+    spacing and letter case normalised."""
+    key = known_target(text) or (known_near(coord) if coord is not None else None)
+    return DISPLAY[key] if key else re.sub(r"\s+", " ", text.strip().lower())
 
 
 SIMBAD_SERVERS = ["simbad.harvard.edu", "simbad.cds.unistra.fr"]   # Harvard first: CDS is blocked for us
@@ -79,22 +108,41 @@ def _num(v):
     return None if np.ma.is_masked(v) else float(v)
 
 
+FAILED_TTL_S = 120            # a name that could not be resolved is not asked again for this long
+_failed = {}                  # name -> time of the last failure
+
+
 def resolve_name(name):
+    """Like _resolve_name, but a recent failure fails again at once: the app asks several
+    times per page, and each SIMBAD + Sesame miss costs seconds."""
+    if time.time() - _failed.get(name, -1e9) < FAILED_TTL_S:
+        raise ValueError(f"Could not resolve name: {name!r}")
+    try:
+        return _resolve_name(name)
+    except ValueError:
+        _failed[name] = time.time()
+        raise
+
+
+@lru_cache(maxsize=256)
+def _resolve_name(name):
     """Name -> SkyCoord. The challenge targets come from KNOWN (position, motion and epoch
-    checked); other names from SIMBAD (Harvard, then CDS), then Sesame."""
+    checked); other names from SIMBAD (Harvard, then CDS), then Sesame.
+    Answers are remembered for the life of the process (the app asks on every rerun);
+    failures are not, so a name that failed offline is tried again later."""
     key = known_target(name)
     if key:
         return make_coord(*KNOWN[key])
     for server in SIMBAD_SERVERS:
         try:
-            r = _simbad_for(server).query_object(name)
+            r = with_retries(lambda: _simbad_for(server).query_object(name), tries=1)
             if r is not None and len(r) > 0:
                 return make_coord(float(r["ra"][0]), float(r["dec"][0]),
                                   _num(r["pmra"][0]), _num(r["pmdec"][0]))
         except Exception as e:
             print(f"  SIMBAD {server} failed: {type(e).__name__}")
     try:
-        return SkyCoord.from_name(name)          # position only, no proper motion
+        return with_retries(SkyCoord.from_name, name, tries=1)   # position only, no proper motion
     except Exception as e:
         print(f"  Sesame failed: {type(e).__name__}")
     raise ValueError(f"Could not resolve name: {name!r}")
@@ -103,13 +151,11 @@ def resolve_name(name):
 def attach_known_motion(coord):
     """Typed coordinates within MATCH_RADIUS of a KNOWN target -> that target, with its
     proper motion and epoch (typed coordinates carry no motion by themselves)."""
-    for key, row in KNOWN.items():
-        if row[2] == 0 and row[3] == 0:
-            continue
-        if coord.separation(SkyCoord(row[0] * u.deg, row[1] * u.deg)) < MATCH_RADIUS:
-            print(f"  coordinates match {key!r}: using its proper motion (epoch {row[4]})")
-            return make_coord(*row)
-    return coord
+    key = known_near(coord)
+    if key is None or (KNOWN[key][2] == 0 and KNOWN[key][3] == 0):
+        return coord
+    print(f"  coordinates match {key!r}: using its proper motion (epoch {KNOWN[key][4]})")
+    return make_coord(*KNOWN[key])
 
 
 def parse_target(text):
