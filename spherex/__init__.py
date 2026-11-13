@@ -35,9 +35,13 @@ from .targets import parse_target, resolve_name, at_time, has_pm, years_since_j2
 from .frames import spherex_collections, find_frames, load_or_find_frames  # noqa: E402
 from .download import get_cutout, prefetch, check_cache, CACHE_DIR  # noqa: E402
 from .clean import clean_frame, flag_bits, decode_flags, saturated_mask, BAD_FLAGS, SATURATION_FLAGS, DEFAULT_BITS  # noqa: E402
-from .epochs import assign_epochs, make_grid, stack_epoch, make_epochs   # noqa: E402
+from .epochs import assign_epochs, make_grid, stack_epoch, make_epochs, parse_detectors   # noqa: E402
 from .diff import difference, make_gif, shared_norm                            # noqa: E402
-from .gaia import gaia_stars, gaia_overlay, draw_gaia                                    # noqa: E402
+from .gaia import gaia_stars, gaia_overlay, draw_gaia
+from .wise import wise_stars, wise_overlay                                    # noqa: E402
 from .photometry import light_curve, measure_frame, wavelength_at                               # noqa: E402
-from .plots import plot_light_curve, plot_light_curve_simple, plot_spectrum, set_style                               # noqa: E402
+from .plots import plot_light_curve, plot_light_curve_simple, plot_spectrum, plot_spectra_visits, set_style                               # noqa: E402
+from .combine import deep_image, minus_mean, difference_series, band_difference, rgb_image  # noqa: E402
+from .asteroids import known_asteroids, draw_asteroids                                   # noqa: E402
 from .spectrum import spectrum, bin_to_channels, epoch_frames, channel_edges                                    # noqa: E402
+from . import api                                                  # noqa: E402
