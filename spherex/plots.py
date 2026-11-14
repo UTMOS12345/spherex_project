@@ -139,7 +139,7 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30, span_mjd=None)
     fig, ax = plt.subplots(figsize=(8, 4.6))
     ax.grid(axis="y", lw=1); ax.set_axisbelow(True)
     ax.spines["left"].set_visible(False); ax.tick_params(length=0)
-    dates, means, spreads, empty, limits, kinds = [], [], [], [], [], []
+    dates, means, spreads, empty, limits, kinds, npts = [], [], [], [], [], [], []
     has_limits = "flux_min_mjy" in lc.colnames
     for v in sorted(set(visit)):
         rows = lc[visit == v]
@@ -167,14 +167,27 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30, span_mjd=None)
         dates.append(d)
         means.append(float(np.mean(good["flux_mjy"])))
         spreads.append(float(np.std(good["flux_mjy"])) if len(good) > 1 else float(good["err_mjy"][0]))
+        npts.append(len(good))
     if dates:
-        ax.plot(dates, means, "-", color=B, lw=2, alpha=0.6)
+        # only visits with 2+ usable points are joined: a line to a one-measurement visit would
+        # look like a trend that one frame cannot support
+        multi = [i for i, n in enumerate(npts) if n > 1]
+        if len(multi) > 1:
+            ax.plot([dates[i] for i in multi], [means[i] for i in multi], "-", color=B, lw=2, alpha=0.6)
         for r in sorted(set(kinds)):
-            k = [i for i, x in enumerate(kinds) if x == r]
-            label = "visit average (bar = spread)" + (f", {r}" if len(releases) > 1 and r else "")
-            ax.errorbar([dates[i] for i in k], [means[i] for i in k], yerr=[spreads[i] for i in k],
-                        fmt=marker[r], color=B, ms=11 if marker[r] == "o" else 10, mec=THEME["surface"], mew=2,
-                        elinewidth=2, capsize=0, label=label)
+            for one in (False, True):
+                k = [i for i, x in enumerate(kinds) if x == r and (npts[i] == 1) == one]
+                if not k:
+                    continue
+                if one:                                    # open symbol: rests on one measurement
+                    label = "single measurement" + (f", {r}" if len(releases) > 1 and r else "")
+                    style = dict(mfc="none", mec=B, mew=2)
+                else:
+                    label = "visit average (bar = spread)" + (f", {r}" if len(releases) > 1 and r else "")
+                    style = dict(mec=THEME["surface"], mew=2)
+                ax.errorbar([dates[i] for i in k], [means[i] for i in k], yerr=[spreads[i] for i in k],
+                            fmt=marker[r], color=B, ms=11 if marker[r] == "o" else 10, elinewidth=2, capsize=0,
+                            label=label, **style)
         for d, m in zip(dates, means):
             ax.annotate(_fmt(m), (d, m), xytext=(10, 0), textcoords="offset points",
                         va="center", fontsize=9, color=INK)
