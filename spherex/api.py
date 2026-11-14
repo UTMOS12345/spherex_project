@@ -33,7 +33,7 @@ from .epochs import assign_epochs, make_epochs, parse_detectors, CLIP_MIN_FRAMES
 from .frames import load_or_find_frames
 from .gaia import gaia_overlay, draw_gaia
 from .photometry import light_curve
-from .plots import plot_light_curve_simple, plot_spectrum, plot_spectra_visits
+from .plots import plot_light_curve_simple, plot_spectrum, plot_spectra_visits, wavelength_spread, WL_SPREAD_UM
 from .spectrum import spectrum, bin_to_channels
 from .targets import parse_target, at_time, has_pm, known_target, target_name
 from .wise import wise_overlay
@@ -508,6 +508,17 @@ def _mixed_releases_note(table):
             "can differ by several percent, so a step between releases is not necessarily a real change.")
 
 
+def _wavelength_spread_note(lc):
+    """Warning text when the usable light-curve points differ in wavelength by more than WL_SPREAD_UM."""
+    spread = wavelength_spread(lc)
+    if spread <= WL_SPREAD_UM:
+        return None
+    wl = np.asarray(lc["wavelength_um"][lc["ok"]], float)
+    return (f"The usable points were measured at slightly different wavelengths ({wl.min():.3f} to "
+            f"{wl.max():.3f} µm). On a steep spectrum that alone can change the flux by several percent, "
+            "so differences of that size are not necessarily a change of the source.")
+
+
 def _join(*notes):
     return " ".join(n for n in notes if n) or None
 
@@ -525,7 +536,8 @@ def light_curve_figure(text, band=1.6, tol=0.02):
     """Brightness over time at one wavelength (micron) -> (figure, table).
     Table columns: mjd, date, wavelength_um, flux_mjy, err_mjy, flux_min_mjy, detector, n_bad, saturated,
     bad_flags, ok, release. table.meta['warning'] (if present) explains saturation, neighbours in the
-    measuring circle, a mix of data releases, or a tolerance above MAX_SAFE_TOL.
+    measuring circle, a wavelength spread above WL_SPREAD_UM between the usable points, a mix of
+    data releases, or a tolerance above MAX_SAFE_TOL.
     Keep tol small: a wide window mixes wavelengths, which can look like variability.
     The time axis covers all visits of the target, not only the measured ones."""
     target, frames = _load(text)
@@ -539,7 +551,7 @@ def light_curve_figure(text, band=1.6, tol=0.02):
     warning = SATURATED_NOTE if (lc["saturated"] & ~lc["ok"]).any() else None
     wide = (f"The tolerance of ±{tol:g} µm mixes wavelengths; across a steep spectrum that alone can look "
             f"like variability. Use ±{MAX_SAFE_TOL:g} µm or less to compare brightnesses.") if tol > MAX_SAFE_TOL else None
-    return _with_warning(fig, lc, _join(warning, wide, _mixed_releases_note(lc),
+    return _with_warning(fig, lc, _join(warning, wide, _wavelength_spread_note(lc), _mixed_releases_note(lc),
                                         _neighbour_warning(target, np.median(lc["mjd"]))))
 
 

@@ -107,9 +107,11 @@ player inside the page).
   difference video it leaves a clear red/blue pair, and the green circle follows it about 11″ in
   a year. It is saturated in SPHEREx, so its light curve and spectra are lower limits.
 - **Epsilon Indi B** (4 visits). A nearby brown-dwarf pair moving about 4.7″ per year; the motion
-  pair is clear in the difference picture at 4.2 µm. Its light curve rises 10% at the change from
-  DR1 to QR3 data, and a field star in the same frames rises by as much: probably calibration,
-  not the brown dwarf (the figure says releases are mixed).
+  pair is clear in the difference picture at 4.2 µm. Its light curve rises 10% in the last visit.
+  The step coincides with the change from DR1 to QR3 data, but it is explained by wavelength: the
+  last point was measured at 4.195 µm, the earlier ones at 4.211 and 4.213 µm, on a steep part of
+  the spectrum. At matched wavelengths the two releases agree within about 2%. The figure shows
+  each point's wavelength and warns about both the spread and the mixed releases.
 - **WISE 0855** (3 visits, all DR1). The coldest known brown dwarf, faint and only seen at 4-5 µm.
   The CatWISE overlay shows its 8″ per year motion. A G = 16.3 star lies 4-8″ away, inside the
   measuring circle: its spectrum below about 3 µm is that star, and its light curve is affected.

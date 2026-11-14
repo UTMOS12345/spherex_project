@@ -103,7 +103,15 @@ def _fmt(v):
     return f"{v:,.0f}" if abs(v) >= 999.5 else f"{v:#.3g}".rstrip(".")
 
 
-RELEASE_MARKERS = ["o", "s", "D", "P", "X", "v"]     # one per data release; "^" is kept for lower limits
+RELEASE_MARKERS = ["o", "s", "D", "P", "X", "v"]
+WL_SPREAD_UM = 0.01      # usable light-curve points further apart than this in wavelength get a note
+
+
+def wavelength_spread(lc):
+    """Largest difference in wavelength (micron) between the usable points of a light curve."""
+    wl = np.asarray(lc["wavelength_um"][lc["ok"]], float) if len(lc) else np.array([])
+    wl = wl[np.isfinite(wl)]
+    return float(wl.max() - wl.min()) if len(wl) > 1 else 0.0     # one per data release; "^" is kept for lower limits
 
 
 def plot_light_curve_simple(lc, title, out_png=None, gap_days=30, span_mjd=None):
@@ -135,11 +143,10 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30, span_mjd=None)
         d = Time(np.mean(rows["mjd"]), format="mjd").datetime
         if len(good) == 0:
             lim = np.asarray(rows["flux_min_mjy"], float) if has_limits else np.array([])
-            lim = lim[np.isfinite(lim) & (lim > 0)]
-            if len(lim):
-                limits.append((Time(rows["mjd"][np.isfinite(np.asarray(rows["flux_min_mjy"], float))
-                                                & (np.asarray(rows["flux_min_mjy"], float) > 0)], format="mjd").datetime,
-                               lim, d))
+            has = np.isfinite(lim) & (lim > 0)
+            if has.any():
+                limits.append((Time(rows["mjd"][has], format="mjd").datetime, lim[has], d,
+                               np.asarray(rows["wavelength_um"], float)[has]))
                 continue
             reason = "saturated" if rows["saturated"].any() else "bad pixels"
             empty.append((d, reason))
@@ -148,6 +155,9 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30, span_mjd=None)
             g = good[good["release"] == r]
             ax.plot(Time(g["mjd"], format="mjd").datetime, g["flux_mjy"], marker[r], color=B, ms=4, alpha=0.45,
                     ls="none")
+        for t, f, w in zip(Time(good["mjd"], format="mjd").datetime, good["flux_mjy"], good["wavelength_um"]):
+            ax.annotate(f"{float(w):.3f} µm", (t, f), xytext=(0, -7), textcoords="offset points",
+                        ha="center", va="top", fontsize=7, color=MUTED)   # each point's own wavelength
         rel, counts = np.unique(np.asarray(good["release"], str), return_counts=True)
         kinds.append(str(rel[np.argmax(counts)]))         # the visit's marker: its most common release
         dates.append(d)
@@ -164,12 +174,15 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30, span_mjd=None)
         for d, m in zip(dates, means):
             ax.annotate(_fmt(m), (d, m), xytext=(10, 0), textcoords="offset points",
                         va="center", fontsize=9, color=INK)
-    for k, (times, lim, d) in enumerate(limits):
+    for k, (times, lim, d, wls) in enumerate(limits):
         ax.plot(times, lim, "^", color=THEME["flag"], ms=8, mew=0,
                 label="saturated: lower limit (true brightness is higher)" if k == 0 else None)
+        for t, v, w in zip(times, lim, wls):
+            ax.annotate(f"{w:.3f} µm", (t, v), xytext=(0, -7), textcoords="offset points",
+                        ha="center", va="top", fontsize=7, color=MUTED)
         ax.annotate(f"at least {_fmt(lim.max())}", (d, lim.max()), xytext=(10, 0), textcoords="offset points",
                     va="center", fontsize=9, color=THEME["muted"])
-    tops = ([max(np.array(means) + np.array(spreads))] if dates else []) + [lim.max() for _, lim, _ in limits]
+    tops = ([max(np.array(means) + np.array(spreads))] if dates else []) + [lim.max() for _, lim, _, _ in limits]
     ax.set_ylim(0, max(tops) * 1.3 if tops else 1)
     for d, reason in empty:
         ax.annotate(f"no usable data\n({reason})", (d, 0), xytext=(0, 8), textcoords="offset points",
@@ -183,9 +196,16 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30, span_mjd=None)
         first, last = (float(v) for v in span_mjd)
         pad = max(0.04 * (last - first), 10)
         ax.set_xlim(Time(first - pad, format="mjd").datetime, Time(last + pad, format="mjd").datetime)
+    corner = []
     if len([r for r in releases if r]) > 1:
-        ax.text(0.99, 0.98, f"mixed data releases ({', '.join(releases)}):\ncalibration may differ between them",
-                transform=ax.transAxes, ha="right", va="top", fontsize=8, color=THEME["flag"])
+        corner.append(f"mixed data releases ({', '.join(releases)}):\ncalibration may differ between them")
+    spread = wavelength_spread(lc)
+    if spread > WL_SPREAD_UM:
+        corner.append(f"wavelengths differ by {spread:.3f} µm: on a steep\n"
+                      "spectrum that alone changes the flux by several %")
+    if corner:
+        ax.text(0.99, 0.98, "\n".join(corner), transform=ax.transAxes, ha="right", va="top", fontsize=8,
+                color=THEME["flag"])
     fig.autofmt_xdate()
     fig.tight_layout()
     if out_png:
