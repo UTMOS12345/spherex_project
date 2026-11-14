@@ -27,7 +27,7 @@ from astropy.time import Time
 from .asteroids import known_asteroids, draw_asteroids
 from .clean import clean_frame, BAD_FLAGS
 from .combine import deep_image, minus_mean, difference_series, band_difference, rgb_image
-from .diff import difference, make_gif, shared_norm
+from .diff import difference, make_gif, shared_norm, hold_counts
 from .download import get_cutout
 from .epochs import assign_epochs, make_epochs, parse_detectors, CLIP_MIN_FRAMES
 from .frames import load_or_find_frames
@@ -319,9 +319,12 @@ def _video_frames(text, detector, fov, mode, wl, days, clip=True, pictures=None)
 
 
 def player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, width=700, clip=True,
-                pictures=None):
+                pictures=None, real_time=False, max_hold=6):
     """The video as a small web page with play/pause, step and a slider -> HTML string
-    (streamlit.components.v1.html(html, height=...)). Same pictures as flipbook(), including pictures=."""
+    (streamlit.components.v1.html(html, height=...)). Same pictures as flipbook(), including pictures=.
+    real_time=True: each picture stays on screen in proportion to the time gap to the next one,
+    between 1 and max_hold times the base interval 1/fps (the GIF's rule); the last one stays
+    max_hold times. The player has a "real time gaps" checkbox to switch this while it plays."""
     import base64
     import html as _html
     import io
@@ -342,25 +345,32 @@ def player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, day
     plt.close(fig)
     labels = [_html.escape((e.get("label") or e.get("date", "")) + (f"  ({e['few']})" if e.get("few") else ""))
               for e in eps]
+    holds = hold_counts([e["mjd"] for e in eps], max_hold)
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 body {{ margin:0; background:#1a1a19; color:#f0efec; font:13px system-ui, sans-serif; }}
 img {{ width:100%; max-width:{int(width)}px; display:block; margin:0 auto; }}
 .bar {{ display:flex; gap:8px; align-items:center; justify-content:center; margin:8px 0; }}
 button {{ background:transparent; color:#f0efec; border:1px solid #383835; border-radius:2px; padding:3px 10px; cursor:pointer; }}
 input[type=range] {{ flex:1; max-width:420px; }}
+label {{ white-space:nowrap; cursor:pointer; }}
 </style></head><body>
 <img id="f" alt="SPHEREx video frame">
 <div class="bar"><button id="prev">&#9664;</button><button id="play">pause</button><button id="next">&#9654;</button>
 <input id="s" type="range" min="0" max="{len(pngs) - 1}" value="0"><span id="d"></span></div>
+<div class="bar"{'' if len(pngs) > 1 else ' hidden'}><label><input id="rt" type="checkbox"{' checked' if real_time else ''}> real time gaps</label></div>
 <script>
-const F = {json.dumps(pngs)}, L = {json.dumps(labels)};
+const F = {json.dumps(pngs)}, L = {json.dumps(labels)}, H = {json.dumps(holds)}, BASE = {int(1000 / max(fps, 1))};
 let i = 0, timer = null;
 const img = document.getElementById("f"), s = document.getElementById("s"), d = document.getElementById("d"),
-      play = document.getElementById("play");
+      play = document.getElementById("play"), rt = document.getElementById("rt");
+// real time gaps: picture i stays H[i] base intervals (longer gap to the next picture = longer stay)
+function delay() {{ return BASE * (rt.checked ? H[i] : 1); }}
+function tick() {{ show(i + 1); timer = setTimeout(tick, delay()); }}
 function show(k) {{ i = (k + F.length) % F.length; img.src = F[i]; s.value = i;
                     d.textContent = (i + 1) + "/" + F.length + "  " + L[i]; }}
-function start() {{ timer = setInterval(() => show(i + 1), {int(1000 / max(fps, 1))}); play.textContent = "pause"; }}
-function stop() {{ clearInterval(timer); timer = null; play.textContent = "play"; }}
+function start() {{ clearTimeout(timer); timer = setTimeout(tick, delay()); play.textContent = "pause"; }}
+function stop() {{ clearTimeout(timer); timer = null; play.textContent = "play"; }}
+rt.onchange = () => {{ if (timer) start(); }};
 play.onclick = () => timer ? stop() : start();
 document.getElementById("prev").onclick = () => {{ stop(); show(i - 1); }};
 document.getElementById("next").onclick = () => {{ stop(); show(i + 1); }};

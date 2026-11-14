@@ -40,6 +40,18 @@ def difference(epoch_a, epoch_b, match_scale=False):
             "mjd_a": epoch_a["mjd"], "mjd_b": epoch_b["mjd"]}
 
 
+def hold_counts(mjds, max_hold=6):
+    """Dates (MJD) of the pictures -> how many base intervals each picture stays on screen:
+    in proportion to the gap to the next picture, the shortest gap = 1, at most max_hold;
+    the last picture gets max_hold (a pause before the loop starts again)."""
+    n = len(mjds)
+    if n < 2:
+        return [1] * n
+    gaps = np.diff(np.asarray(mjds, float))
+    shortest = max(gaps[gaps > 0].min(), 1e-6) if np.any(gaps > 0) else 1.0
+    return [int(np.clip(round(g / shortest), 1, max_hold)) for g in gaps] + [max_hold]
+
+
 def make_gif(images, titles, out_path, fps=2, markers=None, norm=None, cmap="gray",
              mjds=None, max_hold=6):
     """List of 2D arrays (same shape) -> animated GIF, one picture per array.
@@ -53,9 +65,7 @@ def make_gif(images, titles, out_path, fps=2, markers=None, norm=None, cmap="gra
     n = len(images)
     order = list(range(n))                                 # which picture to show at each step
     if mjds is not None and n > 1:
-        gaps = np.diff(np.asarray(mjds, float))
-        shortest = max(gaps[gaps > 0].min(), 1e-6) if np.any(gaps > 0) else 1.0
-        holds = [int(np.clip(round(g / shortest), 1, max_hold)) for g in gaps] + [max_hold]
+        holds = hold_counts(mjds, max_hold)
         order = [i for i in range(n) for _ in range(holds[i])]
 
     if mjds is None:
