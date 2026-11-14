@@ -98,17 +98,24 @@ def plot_light_curve(lc, title, out_png=None, gap_days=30):
     return fig
 
 
+def _fmt(v):
+    """A brightness for a label: 3 significant figures (0.334, 41.2, 2,350)."""
+    return f"{v:,.0f}" if abs(v) >= 999.5 else f"{v:#.3g}".rstrip(".")
+
+
 RELEASE_MARKERS = ["o", "s", "D", "P", "X", "v"]     # one per data release; "^" is kept for lower limits
 
 
-def plot_light_curve_simple(lc, title, out_png=None, gap_days=30):
+def plot_light_curve_simple(lc, title, out_png=None, gap_days=30, span_mjd=None):
     """The easy-to-read light curve: ONE axis, x = date, y = brightness.
     Big dot = the average of one visit (bar = spread of that visit's points),
     small dots = the single usable measurements, a line joins the visits.
     A visit with no usable point shows its lower limits (saturated star: grey triangles, the true
     brightness is higher) or, if there are none, is marked at the bottom with the reason.
     With a 'release' column, each data release gets its own marker (circle, square, ...), and a
-    light curve that mixes releases says so on the figure: their calibrations can differ."""
+    light curve that mixes releases says so on the figure: their calibrations can differ.
+    span_mjd=(first, last): the time axis covers this range (all visits of the target), so a
+    light curve with few points still shows when SPHEREx looked."""
     B, INK, MUTED, GRID = THEME["blue"], THEME["ink"], THEME["muted"], THEME["grid"]
     lc = lc.copy()
     lc.sort("mjd")
@@ -155,12 +162,12 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30):
                         fmt=marker[r], color=B, ms=11 if marker[r] == "o" else 10, mec=THEME["surface"], mew=2,
                         elinewidth=2, capsize=0, label=label)
         for d, m in zip(dates, means):
-            ax.annotate(f"{m:,.0f}", (d, m), xytext=(10, 0), textcoords="offset points",
+            ax.annotate(_fmt(m), (d, m), xytext=(10, 0), textcoords="offset points",
                         va="center", fontsize=9, color=INK)
     for k, (times, lim, d) in enumerate(limits):
         ax.plot(times, lim, "^", color=THEME["flag"], ms=8, mew=0,
                 label="saturated: lower limit (true brightness is higher)" if k == 0 else None)
-        ax.annotate(f"at least {lim.max():,.0f}", (d, lim.max()), xytext=(10, 0), textcoords="offset points",
+        ax.annotate(f"at least {_fmt(lim.max())}", (d, lim.max()), xytext=(10, 0), textcoords="offset points",
                     va="center", fontsize=9, color=THEME["muted"])
     tops = ([max(np.array(means) + np.array(spreads))] if dates else []) + [lim.max() for _, lim, _ in limits]
     ax.set_ylim(0, max(tops) * 1.3 if tops else 1)
@@ -172,6 +179,10 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30):
     ax.set_title(title, loc="left", fontsize=12, fontweight="bold")
     if dates or limits:
         ax.legend(loc="upper left", fontsize=9, labelcolor=MUTED)
+    if span_mjd is not None:
+        first, last = (float(v) for v in span_mjd)
+        pad = max(0.04 * (last - first), 10)
+        ax.set_xlim(Time(first - pad, format="mjd").datetime, Time(last + pad, format="mjd").datetime)
     if len([r for r in releases if r]) > 1:
         ax.text(0.99, 0.98, f"mixed data releases ({', '.join(releases)}):\ncalibration may differ between them",
                 transform=ax.transAxes, ha="right", va="top", fontsize=8, color=THEME["flag"])
@@ -238,7 +249,7 @@ def plot_spectrum(spec, binned, title, out_png=None, log=False, molecules=True):
                     label="channel average")
     if len(lim):
         ax.plot(lim["wavelength_um"], lim["flux_min_mjy"], "^", color=THEME["flag"], ms=6, mew=0,
-                label=f"saturated: lower limit ({len(lim)}; true brightness is higher)")
+                label=f"saturated: lower limit\n({len(lim)}; true brightness is higher)")
         bad = bad[~np.isin(np.asarray(bad["mjd"]), np.asarray(lim["mjd"]))] if "mjd" in bad.colnames else bad
     shown = np.concatenate([np.asarray(good["flux_mjy"], float), np.asarray(lim["flux_min_mjy"], float)])
     shown = shown[np.isfinite(shown)]
@@ -259,8 +270,8 @@ def plot_spectrum(spec, binned, title, out_png=None, log=False, molecules=True):
         _mark_molecules(ax)
     ax.set_xlabel("wavelength (µm)"); ax.set_ylabel("brightness (mJy)")
     ax.set_title(title, loc="left", fontsize=12, fontweight="bold", pad=18)
-    ax.legend(loc="upper left", fontsize=9, labelcolor=MUTED, frameon=True, facecolor=THEME["surface"],
-              edgecolor="none", framealpha=0.9)          # readable over the molecule labels
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), borderaxespad=0, fontsize=9,
+              labelcolor=MUTED)                          # outside the axes: never covers data
     fig.tight_layout()
     if out_png:
         fig.savefig(out_png)
@@ -315,8 +326,8 @@ def plot_spectra_visits(binned_by_visit, title, out_png=None, log="auto", molecu
         _mark_molecules(ax)
     ax.set_xlabel("wavelength (µm)"); ax.set_ylabel("brightness (mJy)")
     ax.set_title(title, loc="left", fontsize=12, fontweight="bold")
-    ax.legend(loc="upper left", fontsize=9, labelcolor=THEME["muted"], frameon=True,
-              facecolor=THEME["surface"], edgecolor="none", framealpha=0.9)
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), borderaxespad=0, fontsize=9,
+              labelcolor=THEME["muted"])                 # outside the axes: never covers data
     fig.tight_layout()
     if out_png:
         fig.savefig(out_png)

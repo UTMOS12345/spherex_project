@@ -53,6 +53,7 @@ DEMO_DEFAULTS = {
     "R Draconis":     dict(detector="D3", band=2.2, tol=0.02),   # pulsating red giant; saturated
 }
 OTHER_DEFAULTS = dict(detector="D2", band=1.6, tol=0.02)
+MAX_SAFE_TOL = 0.05       # light curves with a wider wavelength window get a warning
 # tol 0.02 um: a wider window mixes wavelengths, and across a steep spectrum that looks like
 # variability (Epsilon Indi B: 57 vs 35 mJy at 4.10 vs 4.25 um in ONE visit).
 
@@ -485,15 +486,21 @@ def light_curve_figure(text, band=1.6, tol=0.02):
     """Brightness over time at one wavelength (micron) -> (figure, table).
     Table columns: mjd, date, wavelength_um, flux_mjy, err_mjy, flux_min_mjy, detector, n_bad, saturated,
     bad_flags, ok, release. table.meta['warning'] (if present) explains saturation, neighbours in the
-    measuring circle, or a mix of data releases.
-    Keep tol small: a wide window mixes wavelengths, which can look like variability."""
+    measuring circle, a mix of data releases, or a tolerance above MAX_SAFE_TOL.
+    Keep tol small: a wide window mixes wavelengths, which can look like variability.
+    The time axis covers all visits of the target, not only the measured ones."""
     target, frames = _load(text)
     lc = light_curve(frames, target, band, tol_um=tol)
     if len(lc) == 0:
-        raise ValueError(f"No image has '{text}' at {band} ± {tol} micron. Try a wider tolerance.")
-    fig = plot_light_curve_simple(lc, f"{text}: brightness at {band:g} ± {tol:g} µm")
+        raise ValueError(f"No image has '{text}' at {band:g} ± {tol:g} micron. Try another wavelength: "
+                         "the visits table shows which detectors observed this target."
+                         + (" Demo mode uses only images already in cache/." if net.DEMO_MODE else ""))
+    fig = plot_light_curve_simple(lc, f"{text}: brightness at {band:g} ± {tol:g} µm",
+                                  span_mjd=(frames["mjd"].min(), frames["mjd"].max()))
     warning = SATURATED_NOTE if (lc["saturated"] & ~lc["ok"]).any() else None
-    return _with_warning(fig, lc, _join(warning, _mixed_releases_note(lc),
+    wide = (f"The tolerance of ±{tol:g} µm mixes wavelengths; across a steep spectrum that alone can look "
+            f"like variability. Use ±{MAX_SAFE_TOL:g} µm or less to compare brightnesses.") if tol > MAX_SAFE_TOL else None
+    return _with_warning(fig, lc, _join(warning, wide, _mixed_releases_note(lc),
                                         _neighbour_warning(target, np.median(lc["mjd"]))))
 
 
