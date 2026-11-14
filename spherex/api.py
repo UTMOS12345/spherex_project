@@ -42,6 +42,8 @@ from . import net
 from .net import set_demo_mode            # api.set_demo_mode(True): cached data only, no hangs
 
 MAX_FOV = 10.0            # arcmin served from the standard downloads
+# Time steps for a picker: the `days` argument of epochs, flipbook, player_html, picture, overlay_figure.
+TIME_STEPS = {"per visit": 60, "monthly": 30, "weekly": 7, "every frame": 0}
 _memory = {}              # stacks already made in this process: key -> list of epochs
 
 # Settings whose images prepare_demo.py downloads for the challenge targets: with these the
@@ -251,14 +253,19 @@ def epochs(text, detector=None, fov=4.0, wl=None, days=60, clip=True, pictures=N
     detector=None means D2, unless wl is given (then the detectors covering wl).
     pictures: optional list of row numbers (index) of the full table; only those rows are returned,
     in time order, and row k is then frame k of flipbook / player_html given the same pictures.
-    index stays the number in the full table (what picture(visit=...) and pictures= take)."""
+    index stays the number in the full table (what picture(visit=...) and pictures= take).
+    table.meta: n_pictures (rows returned), n_frames_total (frames in them), n_few_frames (how
+    many of them are few_frames)."""
     _, _, eps = _epochs(text, detector, fov, wl, days, clip)
     iso = lambda m: Time(m, format="mjd").iso[:10]
-    return Table(rows=[(i, int(e["visit"]), e["date"], iso(e["first_mjd"]), iso(e["last_mjd"]), int(e["n_frames"]),
+    table = Table(rows=[(i, int(e["visit"]), e["date"], iso(e["first_mjd"]), iso(e["last_mjd"]), int(e["n_frames"]),
                         int(e["n_min"]), round(float(e["clipped_fraction"]), 5), bool(_few(e)),
                         e["detectors_used"], e["releases"]) for i, e in ((i, eps[i]) for i in _choose(eps, pictures))],
-                 names=["index", "visit", "date", "first_date", "last_date", "n_frames", "n_min",
-                        "clipped_fraction", "few_frames", "detectors_used", "releases"])
+                  names=["index", "visit", "date", "first_date", "last_date", "n_frames", "n_min",
+                         "clipped_fraction", "few_frames", "detectors_used", "releases"])
+    table.meta.update(n_pictures=len(table), n_frames_total=int(np.sum(table["n_frames"])),
+                      n_few_frames=int(np.sum(table["few_frames"])))
+    return table
 
 
 # ------------------------------------------------------------------ 2. the video
