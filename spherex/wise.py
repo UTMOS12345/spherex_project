@@ -22,9 +22,9 @@ from astropy.table import Table
 from astropy.time import Time
 
 from . import net
-from .net import with_retries, find_cached_cone
+from .net import with_retries, find_cached_cone, CACHE_ROOT
 
-WISE_DIR = Path("cache/wise")
+WISE_DIR = CACHE_ROOT / "wise"
 CATWISE_EPOCH = Time(57170.0, format="mjd")
 CATWISE_TABLE = "catwise_2020"
 PM_SNR_MIN = 5                 # motion / its uncertainty needed before a WISE arrow is drawn

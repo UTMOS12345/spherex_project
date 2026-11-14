@@ -8,11 +8,11 @@ from astropy.table import Table, vstack
 from astropy.time import Time
 from astroquery.ipac.irsa import Irsa
 
-from .net import with_retries
+from .net import with_retries, CACHE_ROOT
 from .targets import at_time, target_name
 
 KEEP = ["t_min", "t_max", "energy_bandpassname", "em_min", "em_max", "obs_id", "access_url"]
-TABLE_DIR = Path("cache/frames")
+TABLE_DIR = CACHE_ROOT / "frames"
 
 
 def spherex_collections():
