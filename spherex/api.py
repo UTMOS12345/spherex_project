@@ -196,6 +196,21 @@ def flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=6
     detector: 'D1'..'D6', combinations like 'D5+D6', or 'all'.   fov: width in arcmin.
     wl: optional wavelength range like '4.4-4.7' (micron); detector may then be None.
     days: longest time one picture may cover (60 = one per visit; 7 = weekly pictures)."""
+    target, eps, titles, norm, cmap = _video_frames(text, detector, fov, mode, wl, days)
+    fd, path = tempfile.mkstemp(suffix=".gif")
+    os.close(fd)
+    try:
+        make_gif([e["image"] for e in eps], titles, path, fps=fps, norm=norm, cmap=cmap,
+                 markers=[_marker(target, e) for e in eps],
+                 mjds=[e["mjd"] for e in eps] if timeline else None)
+        with open(path, "rb") as f:
+            return f.read()
+    finally:
+        os.remove(path)
+
+
+def _video_frames(text, detector, fov, mode, wl, days):
+    """The pictures of the video -> (target, epochs, titles, norm, cmap)."""
     target, _, eps = _epochs(text, detector, fov, wl, days)
     label = eps[0]["detector"]
     norm, cmap = None, "gray"
@@ -211,16 +226,56 @@ def flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=6
         titles = [f"{text}  {label}  {e['date']}  ({e['n_frames']} frames)" for e in eps]
     else:
         raise ValueError("mode must be 'normal', 'difference' or 'minusmean'.")
-    fd, path = tempfile.mkstemp(suffix=".gif")
-    os.close(fd)
-    try:
-        make_gif([e["image"] for e in eps], titles, path, fps=fps, norm=norm, cmap=cmap,
-                 markers=[_marker(target, e) for e in eps],
-                 mjds=[e["mjd"] for e in eps] if timeline else None)
-        with open(path, "rb") as f:
-            return f.read()
-    finally:
-        os.remove(path)
+    return target, eps, titles, norm or shared_norm([e["image"] for e in eps]), cmap
+
+
+def player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, width=700):
+    """The video as a small web page with play/pause, step and a slider -> HTML string
+    (streamlit.components.v1.html(html, height=...)). Same pictures as flipbook()."""
+    import base64
+    import html as _html
+    import io
+    import json
+    target, eps, titles, norm, cmap = _video_frames(text, detector, fov, mode, wl, days)
+    pngs = []
+    fig, ax = plt.subplots(figsize=(6, 6))
+    for e, title in zip(eps, titles):
+        ax.clear()
+        ax.imshow(e["image"], origin="lower", cmap=cmap, norm=norm)
+        x, y = _marker(target, e)
+        ax.scatter([x], [y], s=400, facecolors="none", edgecolors="lime", lw=1.2)
+        ax.set_xticks([]); ax.set_yticks([])
+        ax.set_title(title, fontsize=10)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", bbox_inches="tight", dpi=100)
+        pngs.append("data:image/png;base64," + base64.b64encode(buf.getvalue()).decode())
+    plt.close(fig)
+    labels = [_html.escape(e.get("label") or e.get("date", "")) for e in eps]
+    return f"""<!doctype html><html><head><meta charset="utf-8"><style>
+body {{ margin:0; background:#1a1a19; color:#f0efec; font:13px system-ui, sans-serif; }}
+img {{ width:100%; max-width:{int(width)}px; display:block; margin:0 auto; }}
+.bar {{ display:flex; gap:8px; align-items:center; justify-content:center; margin:8px 0; }}
+button {{ background:transparent; color:#f0efec; border:1px solid #383835; border-radius:2px; padding:3px 10px; cursor:pointer; }}
+input[type=range] {{ flex:1; max-width:420px; }}
+</style></head><body>
+<img id="f" alt="SPHEREx video frame">
+<div class="bar"><button id="prev">&#9664;</button><button id="play">pause</button><button id="next">&#9654;</button>
+<input id="s" type="range" min="0" max="{len(pngs) - 1}" value="0"><span id="d"></span></div>
+<script>
+const F = {json.dumps(pngs)}, L = {json.dumps(labels)};
+let i = 0, timer = null;
+const img = document.getElementById("f"), s = document.getElementById("s"), d = document.getElementById("d"),
+      play = document.getElementById("play");
+function show(k) {{ i = (k + F.length) % F.length; img.src = F[i]; s.value = i;
+                    d.textContent = (i + 1) + "/" + F.length + "  " + L[i]; }}
+function start() {{ timer = setInterval(() => show(i + 1), {int(1000 / max(fps, 1))}); play.textContent = "pause"; }}
+function stop() {{ clearInterval(timer); timer = null; play.textContent = "play"; }}
+play.onclick = () => timer ? stop() : start();
+document.getElementById("prev").onclick = () => {{ stop(); show(i - 1); }};
+document.getElementById("next").onclick = () => {{ stop(); show(i + 1); }};
+s.oninput = () => {{ stop(); show(+s.value); }};
+show(0); if (F.length > 1) start(); else play.disabled = true;
+</script></body></html>"""
 
 
 # ------------------------------------------------------------------ 3. single pictures
