@@ -2,26 +2,26 @@ Barnard's Star: 363 frames, 3 visits
   OK    download cutouts  (3 s)
   OK    stack visits (D2)  (4 s)
   OK    flipbook.gif + difference.png  (2 s)
-  OK    overlay.png (Gaia + WISE)  (3 s)
+  OK    overlay.png (Gaia + WISE)  (4 s)
         light curve: 5 points, 0 usable  [The target is saturated (too bright for SPHEREx) here: triangles are l]
-  OK    lightcurve (1.3 um)  (4 s)
+  OK    lightcurve (1.3 um)  (5 s)
         spectrum: 119 points, 119 of 102 channels  [The target is saturated (too bright for SPHEREx) here: triangles are l]
-  OK    spectrum (latest visit)  (15 s)
+  OK    spectrum (latest visit)  (16 s)
 WISE 0855: 258 frames, 3 visits
   OK    download cutouts  (1 s)
   OK    stack visits (D6)  (2 s)
   OK    flipbook.gif + difference.png  (1 s)
-  OK    overlay.png (Gaia + WISE)  (3 s)
+  OK    overlay.png (Gaia + WISE)  (2 s)
         light curve: 4 points, 3 usable  [1 Gaia star(s) inside the 12″ measuring circle (G=16.3 at 6.0″): part ]
-  OK    lightcurve (4.5 um)  (4 s)
+  OK    lightcurve (4.5 um)  (3 s)
         spectrum: 100 points, 79 of 102 channels  [1 Gaia star(s) inside the 12″ measuring circle (G=16.3 at 4.4″): part ]
-  OK    spectrum (latest visit)  (14 s)
+  OK    spectrum (latest visit)  (13 s)
 Epsilon Indi B: 467 frames, 4 visits
   OK    download cutouts  (2 s)
   OK    stack visits (D5)  (4 s)
   OK    flipbook.gif + difference.png  (1 s)
   OK    overlay.png (Gaia + WISE)  (5 s)
-        light curve: 3 points, 3 usable
+        light curve: 3 points, 3 usable  [These measurements come from different data releases (DR1, QR3). Their]
   OK    lightcurve (4.2 um)  (6 s)
         spectrum: 120 points, 62 of 102 channels
   OK    spectrum (latest visit)  (16 s)
@@ -30,15 +30,15 @@ RW Aur: 336 frames, 3 visits
   OK    stack visits (D1)  (3 s)
   OK    flipbook.gif + difference.png  (1 s)
   OK    overlay.png (Gaia + WISE)  (3 s)
-        light curve: 4 points, 3 usable
+        light curve: 4 points, 3 usable  [These measurements come from different data releases (DR1, QR3). Their]
   OK    lightcurve (0.9 um)  (4 s)
         spectrum: 109 points, 53 of 102 channels
-  OK    spectrum (latest visit)  (14 s)
+  OK    spectrum (latest visit)  (13 s)
 R Draconis: 548 frames, 6 visits
   OK    download cutouts  (1 s)
   OK    stack visits (D3)  (4 s)
   OK    flipbook.gif + difference.png  (1 s)
-  OK    overlay.png (Gaia + WISE)  (5 s)
+  OK    overlay.png (Gaia + WISE)  (4 s)
         light curve: 1 points, 0 usable  [The target is saturated (too bright for SPHEREx) here: triangles are l]
   OK    lightcurve (2.2 um)  (6 s)
         spectrum: 76 points, 76 of 102 channels  [The target is saturated (too bright for SPHEREx) here: triangles are l]

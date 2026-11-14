@@ -9,15 +9,15 @@ Made by `make_gallery.py`. READY = made from every image; PARTIAL = made from th
 | Video, D2 (`flipbook.gif`) | READY |  |
 | Last minus first visit, D2 (`difference.png`) | READY |  |
 | Gaia + WISE overlay (`overlay.png`) | READY |  |
-| Light curve at 1.3 ± 0.02 µm (`lightcurve.png`) | LOWER LIMITS | The target is saturated (too bright for SPHEREx) here: triangles are lower limits from the unsaturated wings of the star; its true brightness is higher. |
+| Light curve at 1.3 ± 0.02 µm (`lightcurve.png`) | LOWER LIMITS | The target is saturated (too bright for SPHEREx) here: triangles are lower limits from the unsaturated wings of the star; its true brightness is higher. These measurements come from different data releases (DR1, QR3). Their calibration can differ by several percent, so a step between releases is not necessarily a real change. |
 | Spectrum, latest visit (`spectrum.png`) | LOWER LIMITS | The target is saturated (too bright for SPHEREx) here: triangles are lower limits from the unsaturated wings of the star; its true brightness is higher. |
 | Spectrum of every visit (`spectra_visits.png`) | LOWER LIMITS | The target is saturated (too bright for SPHEREx) here: triangles are lower limits from the unsaturated wings of the star; its true brightness is higher. |
 | All visits added, D2 (`deep.png`) | READY |  |
 | Changes only: each visit minus the others, D2 (`minus_mean.gif`) | READY | The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
-| Video, D5+D6 combined (3.8-5.0 µm) (`flipbook_D5+D6.gif`) | PARTIAL | Made from the 45 of 122 images in cache/; the other 77 are at IRSA (python make_gallery.py --download --only "Barnard's Star").  The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
-| Video, all six detectors combined (`flipbook_all.gif`) | PARTIAL | Made from the 161 of 363 images in cache/; the other 202 are at IRSA (python make_gallery.py --download --only "Barnard's Star").  The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
-| Colour difference: D6 minus scaled D2 (`band_difference.png`) | PARTIAL | Made from the 81 of 121 images in cache/; the other 40 are at IRSA (python make_gallery.py --download --only "Barnard's Star").  The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
-| Colour picture: D6, D3, D1 as red, green, blue (`rgb.png`) | PARTIAL | Made from the 57 of 181 images in cache/; the other 124 are at IRSA (python make_gallery.py --download --only "Barnard's Star").  The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
+| Video, D5+D6 combined (3.8-5.0 µm) (`flipbook_D5+D6.gif`) | READY | The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
+| Video, all six detectors combined (`flipbook_all.gif`) | PARTIAL | Made from the 360 of 363 images in cache/; the other 3 are at IRSA (python make_gallery.py --download --only "Barnard's Star").  The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
+| Colour difference: D6 minus scaled D2 (`band_difference.png`) | READY | The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
+| Colour picture: D6, D3, D1 as red, green, blue (`rgb.png`) | PARTIAL | Made from the 180 of 181 images in cache/; the other 1 are at IRSA (python make_gallery.py --download --only "Barnard's Star").  The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
 
 ## WISE 0855
 
@@ -43,7 +43,7 @@ Made by `make_gallery.py`. READY = made from every image; PARTIAL = made from th
 | Video, D5 (`flipbook.gif`) | READY |  |
 | Last minus first visit, D5 (`difference.png`) | READY |  |
 | Gaia + WISE overlay (`overlay.png`) | READY |  |
-| Light curve at 4.2 ± 0.02 µm (`lightcurve.png`) | READY |  |
+| Light curve at 4.2 ± 0.02 µm (`lightcurve.png`) | READY | These measurements come from different data releases (DR1, QR3). Their calibration can differ by several percent, so a step between releases is not necessarily a real change. |
 | Spectrum, latest visit (`spectrum.png`) | READY |  |
 | Spectrum of every visit (`spectra_visits.png`) | PARTIAL | Made from the 194 of 467 images in cache/; the other 273 are at IRSA (python make_gallery.py --download --only "Epsilon Indi B"). |
 | All visits added, D5 (`deep.png`) | READY |  |
@@ -60,7 +60,7 @@ Made by `make_gallery.py`. READY = made from every image; PARTIAL = made from th
 | Video, D1 (`flipbook.gif`) | READY |  |
 | Last minus first visit, D1 (`difference.png`) | READY |  |
 | Gaia + WISE overlay (`overlay.png`) | READY |  |
-| Light curve at 0.9 ± 0.02 µm (`lightcurve.png`) | READY |  |
+| Light curve at 0.9 ± 0.02 µm (`lightcurve.png`) | READY | These measurements come from different data releases (DR1, QR3). Their calibration can differ by several percent, so a step between releases is not necessarily a real change. |
 | Spectrum, latest visit (`spectrum.png`) | READY |  |
 | Spectrum of every visit (`spectra_visits.png`) | PARTIAL | Made from the 148 of 336 images in cache/; the other 188 are at IRSA (python make_gallery.py --download --only "RW Aur"). |
 | All visits added, D1 (`deep.png`) | READY |  |
@@ -82,7 +82,7 @@ Made by `make_gallery.py`. READY = made from every image; PARTIAL = made from th
 | Spectrum of every visit (`spectra_visits.png`) | LOWER LIMITS | The target is saturated (too bright for SPHEREx) here: triangles are lower limits from the unsaturated wings of the star; its true brightness is higher. |
 | All visits added, D3 (`deep.png`) | READY |  |
 | Changes only: each visit minus the others, D3 (`minus_mean.gif`) | READY | The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
-| Video, D5+D6 combined (3.8-5.0 µm) (`flipbook_D5+D6.gif`) | PARTIAL | Made from the 15 of 184 images in cache/; the other 169 are at IRSA (python make_gallery.py --download --only "R Draconis").  The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
-| Video, all six detectors combined (`flipbook_all.gif`) | PARTIAL | Made from the 168 of 548 images in cache/; the other 380 are at IRSA (python make_gallery.py --download --only "R Draconis").  The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
-| Colour difference: D6 minus scaled D2 (`band_difference.png`) | PARTIAL | Made from the 27 of 183 images in cache/; the other 156 are at IRSA (python make_gallery.py --download --only "R Draconis").  The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
+| Video, D5+D6 combined (3.8-5.0 µm) (`flipbook_D5+D6.gif`) | PARTIAL | Made from the 31 of 184 images in cache/; the other 153 are at IRSA (python make_gallery.py --download --only "R Draconis").  The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
+| Video, all six detectors combined (`flipbook_all.gif`) | PARTIAL | Made from the 196 of 548 images in cache/; the other 352 are at IRSA (python make_gallery.py --download --only "R Draconis").  The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
+| Colour difference: D6 minus scaled D2 (`band_difference.png`) | PARTIAL | Made from the 35 of 183 images in cache/; the other 148 are at IRSA (python make_gallery.py --download --only "R Draconis").  The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
 | Colour picture: D6, D3, D1 as red, green, blue (`rgb.png`) | PARTIAL | Made from the 139 of 274 images in cache/; the other 135 are at IRSA (python make_gallery.py --download --only "R Draconis").  The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
