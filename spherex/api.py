@@ -104,18 +104,20 @@ def _wl(wl):
     return (float(min(wl)), float(max(wl)))
 
 
-def _epochs(text, detector="D2", fov=4.0, wl=None, days=60):
-    """Stacked visits (memory-cached). detector may be None when wl is given."""
+def _epochs(text, detector="D2", fov=4.0, wl=None, days=60, clip=True):
+    """Stacked visits (memory-cached). detector may be None when wl is given.
+    clip=False: plain average of the frames (see epochs.stack_epoch)."""
     if not 1 <= fov <= MAX_FOV:            # larger views would need new, bigger downloads of every frame
         raise ValueError(f"Field of view must be between 1 and {MAX_FOV:g} arcmin.")
     wl = _wl(wl)
     det = None if (wl and not detector) else "+".join(parse_detectors(detector or "D2"))
     target, frames = _load(text)
     # the frame URLs are part of the key: a refresh that swaps releases rebuilds the stacks
-    key = (target_name(text, target), det, round(float(fov), 2), wl, days, hash(tuple(frames["access_url"])))
+    key = (target_name(text, target), det, round(float(fov), 2), wl, days, bool(clip),
+           hash(tuple(frames["access_url"])))
     if key not in _memory:
         eps = make_epochs(frames, target, det, grid_arcmin=fov, wl_range=wl,
-                          gap_days=min(30, days), max_len_days=days)
+                          gap_days=min(30, days), max_len_days=days, clip=clip)
         if not eps:
             if net.DEMO_MODE:
                 raise ValueError(f"The {det or 'matching'} images of '{text}' are not in the offline cache. "
@@ -187,10 +189,16 @@ def resolve(text):
             "known": known_target(text) is not None}
 
 
-def visits(text, refresh=False):
+def visits(text, refresh=False, detector=None, fov=4.0, clip=True):
     """Table with one row per SPHEREx visit: visit, first_date, last_date, n_frames, D1..D6
-    (frames per detector), releases. refresh=True searches IRSA again for new data."""
+    (frames per detector), releases. refresh=True searches IRSA again for new data.
+    detector='D2' (etc.) adds, from that detector's stacks: n_min (fewest frames under the
+    picture's centre; below 4 the picture is unreliable) and clipped_fraction (share of pixel
+    values the sigma clipping rejected). This stacks the visits if they are not stacked yet."""
     _, frames = _load(text, refresh=refresh)
+    stacks = {}
+    if detector:
+        stacks = {e["epoch"]: e for e in _epochs(text, detector, fov, clip=clip)[2]}
     rows = []
     for e in sorted(set(frames["epoch"])):
         f = frames[frames["epoch"] == e]
@@ -198,20 +206,26 @@ def visits(text, refresh=False):
                "n_frames": len(f)}
         row.update({f"D{d}": int((f["detector"] == f"D{d}").sum()) for d in range(1, 7)})
         row["releases"] = ", ".join(sorted(set(str(c).replace("spherex_", "") for c in f["collection"])))
+        if detector:
+            e2 = stacks.get(int(e))
+            row["n_min"] = int(e2["n_min"]) if e2 else 0
+            row["clipped_fraction"] = round(float(e2["clipped_fraction"]), 5) if e2 else float("nan")
         rows.append(row)
     return Table(rows)
 
 
 # ------------------------------------------------------------------ 2. the video
-def flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, timeline=True):
+def flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, timeline=True, clip=True):
     """The little video -> GIF as bytes (st.image(gif_bytes)).
     mode: 'normal'     one picture per visit
           'difference' each visit minus the first (movers walk away from a blue hole)
           'minusmean'  each visit minus the average of the others (only changes remain)
     detector: 'D1'..'D6', combinations like 'D5+D6', or 'all'.   fov: width in arcmin.
     wl: optional wavelength range like '4.4-4.7' (micron); detector may then be None.
-    days: longest time one picture may cover (60 = one per visit; 7 = weekly pictures)."""
-    target, eps, titles, norm, cmap = _video_frames(text, detector, fov, mode, wl, days)
+    days: longest time one picture may cover (60 = one per visit; 7 = weekly pictures).
+    clip: True = sigma-clipped stacks (default); False = plain average of the frames, which keeps
+    sources seen in only a few frames (fast movers, flares) but also single-frame defects."""
+    target, eps, titles, norm, cmap = _video_frames(text, detector, fov, mode, wl, days, clip)
     fd, path = tempfile.mkstemp(suffix=".gif")
     os.close(fd)
     try:
@@ -224,9 +238,9 @@ def flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=6
         os.remove(path)
 
 
-def _video_frames(text, detector, fov, mode, wl, days):
+def _video_frames(text, detector, fov, mode, wl, days, clip=True):
     """The pictures of the video -> (target, epochs, titles, norm, cmap)."""
-    target, _, eps = _epochs(text, detector, fov, wl, days)
+    target, _, eps = _epochs(text, detector, fov, wl, days, clip)
     label = eps[0]["detector"]
     norm, cmap = None, "gray"
     if mode in ("difference", "minusmean"):
@@ -250,14 +264,14 @@ def _video_frames(text, detector, fov, mode, wl, days):
     return target, eps, titles, norm or shared_norm([e["image"] for e in eps]), cmap
 
 
-def player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, width=700):
+def player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, width=700, clip=True):
     """The video as a small web page with play/pause, step and a slider -> HTML string
     (streamlit.components.v1.html(html, height=...)). Same pictures as flipbook()."""
     import base64
     import html as _html
     import io
     import json
-    target, eps, titles, norm, cmap = _video_frames(text, detector, fov, mode, wl, days)
+    target, eps, titles, norm, cmap = _video_frames(text, detector, fov, mode, wl, days, clip)
     pngs = []
     fig, ax = plt.subplots(figsize=(6, 6))
     for e, title in zip(eps, titles):
@@ -302,16 +316,17 @@ show(0); if (F.length > 1) start(); else play.disabled = true;
 
 # ------------------------------------------------------------------ 3. single pictures
 def picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=None,
-            long="D6", short="D2", rgb="D6,D3,D1"):
+            long="D6", short="D2", rgb="D6,D3,D1", clip=True):
     """One picture -> matplotlib figure (st.pyplot(fig)).
     kind: 'visit'    one visit's stack (visit = 0, 1, ... or -1 for the latest)
           'deep'     all visits added
           'pair'     visit a minus visit b (red = brighter in a, blue = brighter in b)
           'banddiff' detector `long` minus scaled detector `short`, latest common visit:
                      normal stars cancel, unusually red (cold) objects stay
-          'rgb'      colour picture from three detectors 'red,green,blue'"""
+          'rgb'      colour picture from three detectors 'red,green,blue'
+    clip: True = sigma-clipped stacks; False = plain average (see flipbook)."""
     if kind in ("visit", "deep", "pair"):
-        target, _, eps = _epochs(text, detector, fov, wl)
+        target, _, eps = _epochs(text, detector, fov, wl, clip=clip)
         label = eps[0]["detector"]
         if kind == "visit":
             ep = _pick(eps, visit)
@@ -335,7 +350,7 @@ def picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=
             raise ValueError("rgb needs three detectors, like 'D6,D3,D1'.")
         sets = []
         for d in dets:
-            target, _, eps = _epochs(text, d, fov)
+            target, _, eps = _epochs(text, d, fov, clip=clip)
             sets.append(eps)
         common = sorted(set.intersection(*[set(e["epoch"] for e in s) for s in sets]))
         if not common:
@@ -441,6 +456,7 @@ def overlay_figure(text, detector="D2", fov=4.0, visit=-1, gaia=True, wise=True,
     ax.set_title(_with_few(f"{text}  {ep['detector']}  {ep['date']}\ncircles = Gaia, squares = WISE, "
                            f"arrows = next {arrow_years:g} years, green = target", ep), fontsize=9)
     notes["n_min"] = ep.get("n_min")
+    notes["clipped_fraction"] = ep.get("clipped_fraction")
     notes["few_frames"] = bool(_few(ep))
     return fig, notes
 

@@ -58,7 +58,7 @@ def central_min(coverage, frac=0.5):
 
 
 def stack_epoch(paths, grid_wcs, shape, bad_flags=BAD_FLAGS, keep_saturated_stars=True, wl_range=None,
-                return_count=False, return_stats=False):
+                return_count=False, return_stats=False, clip=True):
     """Cutout files of ONE epoch -> (stacked image, coverage map) on the common grid.
     Each frame is cleaned (Lesson 5), levelled to zero sky and reprojected; then, pixel by pixel:
       4 or more frames: sigma-clipped mean (CLIP_SIGMA, median centre, MAD spread), so one bad
@@ -67,12 +67,16 @@ def stack_epoch(paths, grid_wcs, shape, bad_flags=BAD_FLAGS, keep_saturated_star
                         the mean of the two, so a bad value still shows);
       1 frame:          that frame's value.
     A pixel that is bad in one frame is filled in by the others.
+    clip=False: plain nanmean of all frames instead (no clipping, no median). Use it to see
+    sources that are in only a few of the frames (fast movers, short flares), which the
+    clipped stack suppresses.
     wl_range=(lo, hi) in micron: keep only pixels that see a wavelength in that range
     (a "narrow-band image"). Each frame then contributes only a stripe of pixels, so the
     picture fills in only where enough frames overlap.
     return_count=True also returns how many frames actually contributed.
     return_stats=True instead returns (stack, coverage, stats), stats = dict n (frames used),
-    n_min (central_min of the coverage)."""
+    n_min (central_min of the coverage), n_values (pixel values that went in), n_rejected
+    (of those, how many the sigma clipping dropped; 0 with clip=False)."""
     layers = []
     for p in paths:
         f = clean_frame(p, bad_flags, keep_saturated_stars)
@@ -92,18 +96,19 @@ def stack_epoch(paths, grid_wcs, shape, bad_flags=BAD_FLAGS, keep_saturated_star
     if not layers:
         empty = (np.full(shape, np.nan), np.zeros(shape, int))
         if return_stats:
-            return (*empty, {"n": 0, "n_min": 0})
+            return (*empty, {"n": 0, "n_min": 0, "n_values": 0, "n_rejected": 0})
         return (*empty, 0) if return_count else empty
     cube = np.array(layers)                               # shape (n_frames, ny, nx)
     coverage = np.isfinite(cube).sum(axis=0)              # how many frames saw each pixel
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)   # "mean of empty slice" where coverage = 0
         warnings.simplefilter("ignore", AstropyUserWarning)   # sigma_clip: "invalid values" = NaNs, masked as wanted
-        stack = np.nanmean(cube, axis=0)                  # 1 frame: its value
+        stack = np.nanmean(cube, axis=0)                  # 1 frame: its value (clip=False: everywhere)
+        rejected = 0
         few = (coverage >= 2) & (coverage < CLIP_MIN_FRAMES)
-        if few.any():                                     # 2-3 frames: the median
+        if clip and few.any():                            # 2-3 frames: the median
             stack = np.where(few, np.nanmedian(cube, axis=0), stack)
-        if len(layers) >= CLIP_MIN_FRAMES:
+        if clip and len(layers) >= CLIP_MIN_FRAMES:
             # One bad frame (an unflagged hole of -50 where the sky is ~0) would otherwise
             # survive the mean as a -150 sigma blob, and as a fake source in differences.
             # Each pixel is clipped against its own frames (median, MAD spread), so a star
@@ -112,8 +117,11 @@ def stack_epoch(paths, grid_wcs, shape, bad_flags=BAD_FLAGS, keep_saturated_star
                                  stdfunc="mad_std", axis=0, masked=True)
             robust = np.ma.mean(clipped, axis=0).filled(np.nan)
             stack = np.where(coverage >= CLIP_MIN_FRAMES, robust, stack)
+            used = coverage >= CLIP_MIN_FRAMES                   # only where the clipped mean is kept
+            rejected = int((np.ma.getmaskarray(clipped) & np.isfinite(cube))[:, used].sum())
     if return_stats:
-        return stack, coverage, {"n": len(layers), "n_min": central_min(coverage)}
+        return stack, coverage, {"n": len(layers), "n_min": central_min(coverage),
+                                 "n_values": int(coverage.sum()), "n_rejected": rejected}
     return (stack, coverage, len(layers)) if return_count else (stack, coverage)
 
 
@@ -142,11 +150,13 @@ def parse_detectors(detector):
 
 def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, pixscale_arcsec=3.0,
                 gap_days=30, max_len_days=60, bad_flags=BAD_FLAGS, keep_saturated_stars=True,
-                wl_range=None):
+                wl_range=None, clip=True):
     """The whole Lesson 6 chain.
     frames table + target SkyCoord + detector -> list of dicts, one per epoch:
     epoch, detector, mjd, date, n_frames, n_min (fewest frames under the centre, per detector),
-    detectors_used, wl_range, image, coverage, wcs.
+    clipped_fraction (share of pixel values the sigma clipping rejected), detectors_used,
+    wl_range, clip, image, coverage, wcs.
+    clip: see stack_epoch (True = sigma-clipped / median stacks, False = plain nanmean).
     All epochs share ONE grid fixed on the sky, so a moving star changes pixel between epochs.
     grid_arcmin is the field of view (width of the picture). The cutout size follows from it
     unless size_deg is given; up to ~10' is served from the standard 0.25 deg downloads.
@@ -180,7 +190,7 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
     epochs = []
     for e in sorted(set(frames["epoch"])):
         rows = frames[(frames["epoch"] == e) & np.isin(frames["detector"], dets)]
-        stacks, coverages, used, have, skipped, n_mins = [], [], 0, [], {}, []
+        stacks, coverages, used, have, skipped, n_mins, n_vals, n_rej = [], [], 0, [], {}, [], 0, 0
         for d in dets:
             paths = []
             for row in rows[rows["detector"] == d]:
@@ -191,11 +201,11 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
                     skipped[str(err)] = skipped.get(str(err), 0) + 1
             if paths:
                 st, cov, stats = stack_epoch(paths, grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range,
-                                             return_stats=True)
+                                             return_stats=True, clip=clip)
                 if stats["n"] == 0:
                     continue                              # no frame of this detector saw the range
                 stacks.append(st); coverages.append(cov); used += stats["n"]; have.append(d)
-                n_mins.append(stats["n_min"])
+                n_mins.append(stats["n_min"]); n_vals += stats["n_values"]; n_rej += stats["n_rejected"]
         for reason, count in skipped.items():
             print(f"  epoch {e}: skipped {count} frame(s): {reason}")
         if not stacks or all(np.isnan(x).all() for x in stacks):
@@ -209,5 +219,6 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
                        "date": Time(mjd, format="mjd").iso[:10], "n_frames": used,
                        "detectors_used": "+".join(have), "wl_range": wl_range,
                        "n_min": min(n_mins),             # weakest per-detector frame count in the centre
+                       "clipped_fraction": n_rej / n_vals if n_vals else 0.0, "clip": bool(clip),
                        "image": stack, "coverage": coverage, "wcs": grid_wcs})
     return epochs
