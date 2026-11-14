@@ -4,6 +4,7 @@ import warnings
 import numpy as np
 from astropy.convolution import Gaussian2DKernel, interpolate_replace_nans
 from astropy.stats import sigma_clip
+from astropy.utils.exceptions import AstropyUserWarning
 from astropy.time import Time
 from astropy.wcs import WCS
 from reproject import reproject_interp
@@ -80,6 +81,7 @@ def stack_epoch(paths, grid_wcs, shape, bad_flags=BAD_FLAGS, keep_saturated_star
     coverage = np.isfinite(cube).sum(axis=0)              # how many frames saw each pixel
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)   # "mean of empty slice" where coverage = 0
+        warnings.simplefilter("ignore", AstropyUserWarning)   # sigma_clip: "invalid values" = NaNs, masked as wanted
         stack = np.nanmean(cube, axis=0)
         if len(layers) >= CLIP_MIN_FRAMES:
             # One bad frame (an unflagged hole of -50 where the sky is ~0) would otherwise
