@@ -33,7 +33,8 @@ from .epochs import assign_epochs, make_epochs, parse_detectors, CLIP_MIN_FRAMES
 from .frames import load_or_find_frames
 from .gaia import gaia_overlay, draw_gaia
 from .photometry import light_curve
-from .plots import plot_light_curve_simple, plot_spectrum, plot_spectra_visits, wavelength_spread, WL_SPREAD_UM
+from .plots import (plot_light_curve_simple, plot_spectrum, plot_spectra_visits, wavelength_spread, WL_SPREAD_UM,
+                    THEME)
 from .spectrum import spectrum, bin_to_channels
 from .targets import parse_target, at_time, has_pm, known_target, target_name
 from .wise import wise_overlay
@@ -587,9 +588,15 @@ def spectrum_figure(text, visit=-1, all_visits=False):
             raise ValueError(f"No spectrum could be measured for '{text}' in any visit.")
         from astropy.table import vstack
         table = vstack(tables) if tables else vstack(specs)          # saturated: every measurement
-        return _with_warning(plot_spectra_visits(per, f"{text}: spectrum of every visit"), table,
-                             _join(SATURATED_NOTE if saturated else None,
-                                   _neighbour_warning(target, np.median(frames["mjd"]))))
+        mixed = _mixed_releases_note(vstack(specs))
+        fig = plot_spectra_visits(per, f"{text}: spectrum of every visit")
+        if mixed:
+            rel = sorted(set(str(r) for r in vstack(specs)["release"] if str(r)))
+            fig.axes[0].text(1.01, 0.0, f"mixed data releases ({', '.join(rel)}):\n"
+                             "calibration may differ between them", transform=fig.axes[0].transAxes,
+                             ha="left", va="bottom", fontsize=8, color=THEME["flag"])   # under the legend
+        return _with_warning(fig, table, _join(SATURATED_NOTE if saturated else None, mixed,
+                                               _neighbour_warning(target, np.median(frames["mjd"]))))
     try:
         sub = frames[frames["epoch"] == ids[visit]]
     except IndexError:

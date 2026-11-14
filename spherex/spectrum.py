@@ -5,7 +5,7 @@ from astropy.time import Time
 
 from .download import get_cutout
 from .epochs import assign_epochs
-from .photometry import measure_frame
+from .photometry import measure_frame, release_name
 from .targets import at_time
 
 # SPHEREx's six detectors; each is split into 17 channels -> 6 x 17 = 102 channels.
@@ -23,7 +23,7 @@ def channel_edges():
 def spectrum(frames_of_epoch, target, r_px=2.0, size_deg=0.1):
     """Frames of ONE visit (all detectors) + target SkyCoord -> Table sorted by wavelength:
     wavelength_um, flux_mjy, err_mjy, flux_min_mjy (lower limit, saturated only), detector, mjd,
-    n_bad, saturated, bad_flags, ok.
+    n_bad, saturated, bad_flags, ok, release ('DR1', 'QR3', ...).
     Every frame sees the target at its own wavelength (the colour depends on where the
     star lands on the detector), so the frames of one visit together cover 0.75-5 micron."""
     rows = []
@@ -35,9 +35,10 @@ def spectrum(frames_of_epoch, target, r_px=2.0, size_deg=0.1):
             print(f"  skipped {row['obs_id']} {row['detector']}: {e}")
             continue
         if np.isfinite(m["wavelength_um"]):
+            m["release"] = release_name(row["collection"]) if "collection" in frames_of_epoch.colnames else ""
             rows.append(m)
     names = ["wavelength_um", "flux_mjy", "err_mjy", "flux_min_mjy", "detector", "mjd", "n_bad", "saturated",
-             "bad_flags", "ok"]
+             "bad_flags", "ok", "release"]
     if not rows:
         return Table(names=names)
     t = Table(rows)[names]
