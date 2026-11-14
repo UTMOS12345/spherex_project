@@ -8,10 +8,10 @@ from astropy.time import Time
 from astropy.utils.data import download_file
 
 from . import net
-from .net import with_retries
+from .net import with_retries, CACHE_ROOT
 from .targets import at_time
 
-CACHE_DIR = Path("cache/cutouts")
+CACHE_DIR = CACHE_ROOT / "cutouts"
 
 # Every download is at least this big (degrees). Smaller views are then made from the same
 # file, so changing the field of view later never needs a new download. 0.25 deg = 15'

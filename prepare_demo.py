@@ -68,9 +68,9 @@ def save_flipbook_and_diff(name, target, epochs, folder):
     norm = shared_norm([first["image"], last["image"]])
     fig = plt.figure(figsize=(14, 4.8))
     for i, (img, title, kw) in enumerate([
-            (first["image"], f"B: {first['date']}", dict(cmap="gray", norm=norm)),
-            (last["image"], f"A: {last['date']}", dict(cmap="gray", norm=norm)),
-            (d["image"], "A - B  (red = brighter in A, blue = brighter in B)",
+            (first["image"], api._with_few(f"earlier: {first['date']}", first), dict(cmap="gray", norm=norm)),
+            (last["image"], api._with_few(f"later: {last['date']}", last), dict(cmap="gray", norm=norm)),
+            (d["image"], "later minus earlier  (red = brighter later, blue = brighter earlier)",
              dict(cmap="RdBu_r", vmin=-lim, vmax=lim))]):
         ax = fig.add_subplot(1, 3, i + 1, projection=d["wcs"])
         ax.imshow(img, origin="lower", **kw)
@@ -154,7 +154,9 @@ def run_target(name, cfg, a, log):
             fig, binned = api.spectrum_figure(name)
             fig.savefig(folder / "spectrum.png", bbox_inches="tight")
             plt.close(fig)
-            note, n = binned.meta.get("warning"), len(binned)
+            note = binned.meta.get("warning")
+            n = len({(d, c) for d, c, f in zip(binned["detector"], binned["channel"], binned["channel_flux_mjy"])
+                     if np.isfinite(f)})                     # channels with an average
         except ValueError as e:
             (folder / "spectrum.png").unlink(missing_ok=True)
             note, n = str(e), 0

@@ -47,14 +47,20 @@ def known_target(name):
     return key if key in KNOWN else None
 
 
+GAIA_EPOCH = Time(2016.0, format="jyear")    # Gaia DR3 positions, often what users copy
+
+
 def known_near(coord):
-    """KNOWN key of the target within MATCH_RADIUS of `coord`, either at its catalogue
-    position or at where it is today (fast movers are far from their catalogue position), or None."""
+    """KNOWN key of the target within MATCH_RADIUS of `coord`, at its catalogue position, at
+    its Gaia DR3 epoch (2016.0) position, or at where it is today (fast movers are far from
+    their catalogue position), or None."""
     now = Time.now()
     for key, row in KNOWN.items():
         known = make_coord(*row)
-        if (coord.separation(SkyCoord(row[0] * u.deg, row[1] * u.deg)) < MATCH_RADIUS or
-                coord.separation(at_time(known, now)) < MATCH_RADIUS):
+        places = [SkyCoord(row[0] * u.deg, row[1] * u.deg)]
+        if has_pm(known):
+            places += [at_time(known, GAIA_EPOCH), at_time(known, now)]
+        if any(coord.separation(p) < MATCH_RADIUS for p in places):
             return key
     return None
 
@@ -158,10 +164,20 @@ def attach_known_motion(coord):
     return make_coord(*KNOWN[key])
 
 
+# "RA 08h55m10.831s, Dec -7d14m42.53s", "RA=133.79 Dec=-7.24", "ra: ..., dec: ..." (labels optional)
+_LABELLED = re.compile(r"ra\s*[=:]?\s*([+-]?\d.*?)\s*,?\s*dec\s*[=:]?\s*([+-]?\d.*?)", re.I)
+
+
 def parse_target(text):
     """User text -> SkyCoord. Accepts '269.45 4.69' (degrees), '17h57m48.5s +04d41m36s',
-    '17:57:48.5 +04:41:36', '17 57 48.5 +04 41 36' (RA in hours), or an object name."""
+    '17:57:48.5 +04:41:36', '17 57 48.5 +04 41 36' (RA in hours), or an object name.
+    The two parts may be separated by a comma and labelled 'RA ...' / 'Dec ...' (also 'RA=', 'RA:')."""
     text = text.strip()
+    labelled = _LABELLED.fullmatch(text)
+    if labelled:
+        text = f"{labelled.group(1)} {labelled.group(2)}"
+    if text[:1].isdigit() and text.count(",") == 1:   # "08h55m10.8s, -07d14m42.5s"
+        text = text.replace(",", " ")
     if re.fullmatch(r"[+-]?\d+(\.\d*)?[\s,]+[+-]?\d+(\.\d*)?", text):     # two plain numbers
         ra, dec = re.split(r"[\s,]+", text)
         return attach_known_motion(SkyCoord(float(ra), float(dec), unit="deg"))
