@@ -1,6 +1,7 @@
 r"""SPHEREx Flipbook: the Streamlit frontend for the spherex data library.
 
-Stage 1: page skeleton, target search with its options, and the video view.
+Built so far: page skeleton, target search with its options, the video view (interactive
+player + gif export) and the overlays view.
 
     $env:SPHEREX_DEMO="1"; .venv\Scripts\python.exe -m streamlit run app.py
 
@@ -73,6 +74,16 @@ def show(fig):
     plt.close(fig)                          # free the figure; matplotlib keeps every one open
 
 
+def embed_html(html, height):
+    """One self-contained HTML page in an iframe. Streamlit 1.67 renamed
+    components.html to st.iframe; older installs only have the first."""
+    if hasattr(st, "iframe"):
+        st.iframe(html, height=height)
+    else:
+        import streamlit.components.v1 as components
+        components.html(html, height=height, scrolling=False)
+
+
 @st.cache_data(show_spinner=False, max_entries=24)
 def cached_defaults(text, live):
     """detector/band/tolerance for a target. `live` is only part of the cache key: with
@@ -80,10 +91,17 @@ def cached_defaults(text, live):
     return call(api.defaults, text)
 
 
-@st.cache_data(show_spinner=False, max_entries=16)
-def cached_flipbook(text, detector, fov, mode, wl, fps, live):
-    """GIF bytes. Same key rule: a GIF built in live mode is not reused in demo mode."""
-    return call(api.flipbook, text, detector, fov, mode, fps, wl)
+@st.cache_data(show_spinner=False, max_entries=12)
+def cached_player(text, detector, fov, mode, wl, fps, live, clip):
+    """The interactive player as one HTML page. `live` and `clip` are only part of the cache
+    key: live mode may see other data, and clip=False is a different set of stacks."""
+    return call(api.player_html, text, detector, fov, mode, fps, wl, width=600, clip=clip)
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def cached_flipbook(text, detector, fov, mode, wl, fps, live, clip):
+    """GIF bytes for the export button. Same key rule as the player."""
+    return call(api.flipbook, text, detector, fov, mode, fps, wl, clip=clip)
 
 
 def url_fov():
@@ -111,6 +129,17 @@ def target_detector():
         return FALLBACK["detector"]
 
 
+def few_frames(text, detector, fov, wl, clip):
+    """True when at least one picture of these settings rests on fewer than 4 frames.
+    api.epochs shares the stacks the player already built, so this is one cheap call.
+    A failure here drops the note, never the video."""
+    try:
+        table = call(api.epochs, text, detector, fov, wl, clip=clip)
+        return any(bool(x) for x in table["few_frames"])
+    except Exception:
+        return False
+
+
 # ------------------------------------------------------------------ state
 def first_setup():
     """Fill st.session_state once, starting from the URL."""
@@ -129,6 +158,7 @@ def first_setup():
     st.session_state["fov"] = url_fov()
     st.session_state["view"] = q.get("view") if q.get("view") in VIEWS else "video"
     st.session_state["mode"] = q.get("mode") if q.get("mode") in MODES else "normal"
+    st.session_state["raw"] = q.get("clip") == "0"      # ?clip=0 -> plain average of the frames
     st.session_state["_defaults_for"] = st.session_state["target"]
 
 
@@ -165,9 +195,9 @@ def header():
     st.markdown(line)
 
 
-READ_GIF = {
-    "normal": "each picture is one visit; the green circle is where the target should be, "
-              "the red dot on the timeline shows which visit is on screen.",
+READ_PLAYER = {
+    "normal": "each picture is one visit; the green circle is where the target should be. "
+              "use play, the arrows or the slider to step through the visits.",
     "difference": "each picture is a visit minus the first: red = brighter than the first "
                   "visit, blue = fainter; a star that moves leaves a red spot and a blue spot.",
     "minusmean": "each picture is a visit minus the average of the other visits: red = "
@@ -182,16 +212,41 @@ def video_panel():
     detector = st.session_state["detector"].strip() or None
     wl = st.session_state["wl"].strip() or None
     fov = float(st.session_state["fov"])
-    with st.spinner("building the video..."):
-        gif = cached_flipbook(text, detector, fov, mode, wl, fps, LIVE)
-    st.image(gif)
-    st.caption(READ_GIF[mode])
-    st.download_button("export gif", gif, mime="image/gif",
-                       file_name=f"spherex_{slug(text)}_{mode}.gif")
+    clip = not st.session_state["raw"]
+    key = (text, detector, fov, mode, wl, fps, LIVE, clip)
+
+    with st.spinner("building the player..."):
+        html = cached_player(*key)
+    # 800 px leaves room for a square picture plus the control bar, so nothing needs scrolling
+    embed_html(html, height=800)
+    if few_frames(text, detector, fov, wl, clip):
+        st.warning(f"{api.FEW_FRAMES_NOTE}: some pictures here rest on fewer than 4 frames "
+                   "under the centre, so one bad frame can survive in them.")
+    st.caption(READ_PLAYER[mode])
+
+    # the gif is only built when asked for; its bytes stay for as long as the settings do
+    if st.button("export gif", key="export_gif"):
+        with st.spinner("building the gif..."):
+            st.session_state["gif"] = (key, cached_flipbook(*key))
+    gif = st.session_state.get("gif")
+    if gif and gif[0] == key:
+        st.download_button("download gif", gif[1], mime="image/gif",
+                           file_name=f"spherex_{slug(text)}_{mode}.gif")
 
 
-OVERLAY_READ = ("circles = Gaia DR3, squares = WISE (pink = slow, orange = fast), arrows = "
-                "motion over the next 5 years, green = the target's predicted position.")
+def overlay_caption(gaia, wise, asteroids):
+    """The grey how-to-read line lists only what this picture actually draws."""
+    parts = []
+    if gaia:
+        parts.append("circles = Gaia DR3")
+    if wise:
+        parts.append("squares = WISE (pink = slow, orange = fast)")
+    if asteroids:
+        parts.append("diamonds = known asteroids")
+    if gaia or wise:
+        parts.append("arrows = motion over the next 5 years")
+    parts.append("green = the target's predicted position")
+    return "; ".join(parts) + "."
 
 
 def overlays_panel():
@@ -199,12 +254,18 @@ def overlays_panel():
     gaia = c1.checkbox("gaia dr3", True, key="ov_gaia")
     wise = c2.checkbox("wise", True, key="ov_wise")
     asteroids = c3.checkbox("asteroids", False, key="ov_asteroids")
+    if asteroids and not LIVE:
+        # the asteroid lookup is a network query, so demo mode must not wait for it
+        st.caption("asteroid positions need the network, so they are not drawn in demo mode.")
     with st.spinner("querying catalogues..."):
         fig, notes = call(api.overlay_figure, st.session_state["target"], target_detector(),
                           float(st.session_state["fov"]), gaia=gaia, wise=wise,
-                          asteroids=asteroids)
+                          asteroids=asteroids and LIVE)
     show(fig)
-    st.caption(OVERLAY_READ)
+    if notes.get("few_frames"):         # the title says it too, but small and easy to miss
+        st.warning(f"{api.FEW_FRAMES_NOTE}: this picture rests on fewer than 4 frames under "
+                   "the centre, so one bad frame can survive in it.")
+    st.caption(overlay_caption(gaia, wise, asteroids and LIVE))
     if "verdict" in notes:             # only when both catalogues were asked for
         st.info(notes["verdict"])
     for failed in notes["failed"]:     # one warning per catalogue that could not be reached
@@ -233,6 +294,10 @@ with st.expander("options"):
                   help="The default is the detector that is already cached for this target.")
     st.text_input("wavelength range in micron, for example 4.4-4.7 (optional)", key="wl")
     st.slider("field of view in arcmin", 2.0, float(api.MAX_FOV), step=0.5, key="fov")
+    st.toggle("raw average (clip=False)", key="raw",
+              help="Plain average of the frames instead of the clipped mean: keeps fast movers "
+                   "and short flares, but also single-frame defects. It does not affect the "
+                   "measurements (light curve, spectrum, flags).")
 
 if LIVE:
     st.caption("live mode: new targets and settings may download from IRSA (this can take "
@@ -265,4 +330,5 @@ st.query_params.update(
     wl=st.session_state["wl"],
     view=view,
     mode=st.session_state.get("mode", "normal"),
+    clip="0" if st.session_state["raw"] else "1",
 )
