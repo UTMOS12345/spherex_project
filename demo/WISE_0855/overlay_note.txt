@@ -1,1 +1,0 @@
-Catalogue check: a CatWISE2020 source lies within 3″ of the target's predicted position, none in Gaia (a known object that is faint or cold in visible light).

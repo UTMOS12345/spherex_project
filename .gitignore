@@ -1,6 +1,11 @@
 __pycache__/
 *.pyc
-# Downloaded SPHEREx cutouts are ~GB: keep them out of git (ship cache/ separately).
-# Cutouts committed earlier stay tracked.
-cache/cutouts/*.fits
+.venv/
+.pytest_cache/
+# Downloaded SPHEREx cutouts are GB-sized: keep them out of git and ship cache/ separately.
+cache/cutouts/
 cache/cutouts.zip
+# Generated demo backups and explore products (override the directories with the env vars).
+demo/
+out/
+runtime/

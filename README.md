@@ -9,7 +9,7 @@ detectors, Gaia DR3 and CatWISE2020 overlays with proper-motion arrows, light cu
 measured on the fly from all 102 SPHEREx channels, and the contamination flags of the data.
 
 The data side is the Python package `spherex/`; `spherex/api.py` is the interface the web app
-calls (see `API.md`). `app_example.py` is the Streamlit web app.
+calls (see `API.md`). `app.py` is the Streamlit web app.
 
 ## How it meets the challenge
 
@@ -63,6 +63,15 @@ default behavior unchanged):
 Recommended server setting: `SPHEREX_CACHE_MAX_GB=25`, `SPHEREX_CACHE_POLICY=evict`,
 `SPHEREX_CACHE_TTL_DAYS=0`.
 
+## Generated outputs
+
+`prepare_demo.py`, `make_gallery.py` and `explore.py` write generated files to `demo/` and
+`out/` by default. Both are gitignored; on a server it is better to keep them outside the
+clone:
+
+- `SPHEREX_DEMO_DIR` (default `demo`): where `prepare_demo.py` / `make_gallery.py` save.
+- `SPHEREX_OUT_DIR` (default `out`): where `explore.py` saves.
+
 ## Install and run
 
 Tested with Python 3.14. Run the commands from this folder.
@@ -70,8 +79,7 @@ Tested with Python 3.14. Run the commands from this folder.
 ```
 python -m venv .venv
 .venv/bin/pip install -r requirements.txt
-.venv/bin/pip install streamlit                   # for the web app only
-SPHEREX_DEMO=1 .venv/bin/streamlit run app_example.py
+SPHEREX_DEMO=1 .venv/bin/streamlit run app.py
 ```
 
 `SPHEREX_DEMO=1` (or `api.set_demo_mode(True)` in code) is the setting for a live demo: no
@@ -192,8 +200,8 @@ This tool uses:
 ## Files
 
 - `spherex/` the library; `spherex/api.py` the functions the app calls (`API.md`).
-- `app_example.py` the Streamlit app.
+- `app.py` the Streamlit app.
 - `prepare_demo.py`, `make_gallery.py` fill `demo/` with backup results; `explore.py` writes extra
   products to `out/`.
-- `lesson*.py`, `show_target.py` step-by-step scripts used while building the library.
-- `cache/` frame lists, cutouts, Gaia and CatWISE cones.
+- `cache/` frame lists, cutouts, Gaia and CatWISE cones. Cutouts are not tracked; ship or rebuild
+  them (`prepare_demo.py`).

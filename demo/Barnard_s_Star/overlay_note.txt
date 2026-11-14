@@ -1,1 +1,0 @@
-Catalogue check: a Gaia DR3 source lies within 3″ of the target's predicted position (a known star).

@@ -1,2 +1,0 @@
-mjd,date,wavelength_um,flux_mjy,err_mjy,flux_min_mjy,detector,n_bad,saturated,bad_flags,ok,release,visit
-60828.1284,2025-06-02 03:04:50.799,2.196,nan,nan,2349.4,3,11,True,"SUR_ERROR,BLOOM",False,DR1,0

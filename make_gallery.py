@@ -14,6 +14,7 @@ Run prepare_demo.py first (it makes flipbook, difference, overlay).
 """
 import argparse
 import html
+import os
 import re
 import textwrap
 import time
@@ -34,7 +35,7 @@ from spherex.epochs import assign_epochs
 from spherex.frames import table_path
 from spherex.targets import parse_target, at_time
 
-OUT = Path("demo")
+OUT = Path(os.environ.get("SPHEREX_DEMO_DIR", "demo"))
 FOV = 4.0                    # arcmin, as prepare_demo.py
 CUTOUT_DEG = 0.1             # the cutout size a 4' view uses
 SECONDS_PER_DOWNLOAD = 9     # measured during prepare_demo.py runs

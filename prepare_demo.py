@@ -10,6 +10,7 @@ Safe to stop (Ctrl+C) and run again: finished downloads are skipped. One failed 
 stops the rest; a summary is written to demo/SUMMARY.txt.
 """
 import argparse
+import os
 import re
 import time
 import traceback
@@ -33,7 +34,7 @@ from spherex.api import DEMO_DEFAULTS
 # Shared with the app (spherex.api.DEMO_DEFAULTS), so the app's defaults are what is cached.
 TARGETS = DEMO_DEFAULTS
 FIELD_ARCMIN = 4.0          # width of the pictures
-OUT = Path("demo")
+OUT = Path(os.environ.get("SPHEREX_DEMO_DIR", "demo"))
 
 
 def safe_name(text):

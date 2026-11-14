@@ -19,6 +19,7 @@ Products (--only one of these):
     asteroids   known asteroids/comets      -> asteroids.png
 """
 import argparse
+import os
 import re
 import traceback
 import warnings
@@ -93,7 +94,7 @@ def main():
     target = parse_target(a.target)
     frames = assign_epochs(load_or_find_frames(a.target, target))
     name = a.target
-    folder = Path("out") / re.sub(r"[^A-Za-z0-9]+", "_", a.target).strip("_")
+    folder = Path(os.environ.get("SPHEREX_OUT_DIR", "out")) / re.sub(r"[^A-Za-z0-9]+", "_", a.target).strip("_")
     folder.mkdir(parents=True, exist_ok=True)
     todo = [a.only] if a.only else PRODUCTS
     det = a.detector or "D2"
