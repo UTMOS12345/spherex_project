@@ -94,12 +94,13 @@ def cached_defaults(text, live):
 
 
 @st.cache_data(show_spinner=False, max_entries=12)
-def cached_player(text, detector, fov, mode, wl, fps, live, clip, days, pictures):
+def cached_player(text, detector, fov, mode, wl, fps, live, clip, days, pictures, real_time):
     """The interactive player as one HTML page. `live` is only part of the cache key: live mode
     may see other data. clip=False and each time step (days) are different sets of pictures;
-    pictures is None (all) or a tuple of rows of api.epochs."""
+    pictures is None (all) or a tuple of rows of api.epochs. real_time: hold each picture in
+    proportion to the gap to the next one (the player's own checkbox starts in this state)."""
     return call(api.player_html, text, detector, fov, mode, fps, wl, days, width=600, clip=clip,
-                pictures=pictures)
+                pictures=pictures, real_time=real_time)
 
 
 @st.cache_data(show_spinner=False, max_entries=8)
@@ -271,6 +272,9 @@ def video_panel():
                         key="step", help="How long one picture may cover: one per visit, per month, "
                                          "per week, or every single frame.")
     st.session_state["days"] = api.TIME_STEPS[step]
+    real_time = st.checkbox("real time gaps", key="real_time",
+                            help="Each picture stays on screen longer when the time to the next "
+                                 "picture is longer (up to 6 times).")
     text = st.session_state["target"].strip()
     detector = st.session_state["detector"].strip() or None
     wl = st.session_state["wl"].strip() or None
@@ -285,9 +289,9 @@ def video_panel():
     key = (text, detector, fov, mode, wl, fps, LIVE, clip, days, pictures)
 
     with st.spinner("building the player..."):
-        html = cached_player(*key)
-    # 800 px leaves room for a square picture plus the control bar, so nothing needs scrolling
-    embed_html(html, height=800)
+        html = cached_player(*key, real_time)
+    # 830 px leaves room for a square picture plus the two control bars, so nothing needs scrolling
+    embed_html(html, height=830)
     counts = picture_counts(text, detector, fov, wl, clip, days, pictures)
     if counts:
         line = (f"{plural(counts['n_pictures'], 'picture')} from "
