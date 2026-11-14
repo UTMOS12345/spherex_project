@@ -206,56 +206,142 @@ f. Repository state [ran; high certainty]
     starting snapshot 6c8b275, as the "commit the current working tree" rule asked.
 
 
-3. STILL OPEN (data side)
+3. OPEN ITEMS FROM THE FIRST REVIEW: STATUS AFTER THE SECOND ROUND
+
+Second round: commits 273e7b9..e294981, one per item; demo/ rebuilt in 33ab3c2. Details in section 4.
 
 HIGH
-- epochs.py:94 (CLIP_MIN_FRAMES = 4; constant at epochs.py:18).
-  Visits or pixels with 1-3 frames are not protected.
-  How a user notices: WISE 0855 first visit has a fake red "new object" in difference.png,
-  minus_mean.gif and the live difference video. Weekly pictures are also exposed.
-  Fix: with 2-3 frames use the per-pixel median (or drop a value far from the others relative to
-  the frame noise), and label 1-frame pictures as unreliable. About 15 min, then rebuild demo/.
-- api.py light_curve_figure and photometry.py light_curve (the ±tol window).
-  Points inside the window differ in wavelength by up to 0.04 µm. On steep spectra that alone makes
-  about 10% steps, which the release note may then be blamed for.
-  How a user notices: Epsilon Indi B 40.5 -> 39.8 -> 44.7.
-  Fix: put each point's wavelength in the figure (it is already in the table), add a note when the
-  spread is large, and correct the README sentence now. About 15 min. Interpolating each visit to the
-  exact band from neighbouring channels would be the proper fix (longer).
+- FIXED. Few-frame stacking (epochs.py, CLIP_MIN_FRAMES). Pixels covered by 2-3 frames now use the
+  median; one frame is used as it is. Pictures resting on fewer than 4 frames say
+  "few frames: unreliable".
+  WISE 0855 first visit (3 frames): the deepest pixel went from -31 sigma to -4 sigma, and the
+  red "new object" is gone from demo/WISE_0855/difference.png [ran, saw].
+  Limit that remains: with exactly 2 frames the median is the mean of the two, so a bad value still
+  shows (now documented, and those pictures carry the note).
+- FIXED. Wavelength spread in light curves. Each point is labelled with its wavelength; a warning
+  and a figure note appear when usable points differ by more than 0.01 µm (Epsilon Indi B 0.018,
+  RW Aur 0.013, WISE 0855 0.033). The README now attributes Epsilon Indi B's step to wavelength
+  (4.195 against 4.211 and 4.213 µm), not calibration.
+  Not done (longer): interpolating each visit to the exact wavelength.
 
 MEDIUM
-- epochs.py:86-94.
-  Clipping suppresses sources present in only a minority of a visit's frames (34% kept for a
-  1 px-per-frame mover, 76% for a source bright in 6 of 21 frames). It also cuts filled saturated
-  cores at individual pixels.
-  How a user notices: fast asteroids and short flares fade from per-visit pictures.
-  Fix: document it in README and API.md, or offer an unclipped stack option.
-- api.py:456 (neighbour warning text), plus the app.
-  The wording understates a dominant neighbour, and the warning is small.
-  How a user notices: the WISE 0855 spectrum and "doubling" read as its own.
-  Fix: when a neighbour is within about 8″, say "below about 3 µm the light is mostly the
-  neighbour"; the app should st.warning(table.meta["warning"]).
-- photometry.py:73-76 with plots.py (spectrum legend label).
-  A mostly-masked (not saturated) circle gets a lower limit labelled "saturated".
-  How a user notices: the WISE 0855 spectrum shows a "saturated" triangle at 2.43 µm.
-  Fix: compute flux_min_mjy only when saturated is True, or label it "masked".
-- Per-visit spectra (api.spectrum_figure with all_visits=True) mix DR1 and QR3 without the release
-  note that light curves now carry.
-  Fix: reuse _mixed_releases_note on the measurement table.
+- FIXED, documented. Clipping suppresses short events. clip=False (the plain average; Epsilon Indi B
+  stacks bit-identical to the pre-clipping code, blobs included) is available in flipbook,
+  player_html, picture and visits. Each visit has clipped_fraction. README and API.md state the limit
+  (a 1 px-per-frame mover keeps about 1/3 of its light, a flare in 6 of 21 frames about 3/4).
+  The filled saturated cores are still trimmed at single pixels (pictures only).
+- FIXED. Neighbour warning text. A neighbour within 8″ is named, with its separation and G
+  magnitude, as the main light source where the target is faint. Only WISE 0855 triggers it.
+- FIXED. Masked circles labelled "saturated". Lower limits now exist only for saturated
+  measurements; mostly-masked circles are "masked: not measured" (open squares). The WISE 0855 point
+  at 2.427 µm (DICHROIC, not saturated) no longer shows a lower limit. Saturated targets keep theirs:
+  Barnard 114 of 119, R Draconis 76 of 76, RW Aur 50.
+- FIXED. Per-visit spectra and releases. A release column was added to spectrum tables; the
+  every-visit spectrum gets the mixed-release note and warning (Barnard, Epsilon Indi B, RW Aur,
+  R Draconis; not WISE 0855, all DR1).
 
 LOW
-- plots.py RELEASE_MARKERS has 6 entries; a 7th distinct release raises KeyError. Fix: cycle them.
-- plots.py plot_light_curve_simple groups points by a 30-day gap, not by the frames' visit, so a
-  wide tolerance can split one visit into two plotted points (Epsilon Indi B at tol 0.1: 56.7 and
-  37.5 mJy in May and June 2025). Fix: group by the epoch column.
-- targets.py parse_target rewrites unusual input before lookup: "RA 1,5 Dec 2" reaches SIMBAD as
-  "1 5 2"; Dec-first input fails. Fix: rewrite only when both parts parse as coordinates.
-- net.py CACHE_ROOT does not expand "~" and is not made absolute. An empty cache in demo mode gives
-  a raw OSError, not a user message. Fix: Path(...).expanduser().resolve(); convert the error to
-  ValueError in api._load.
-- API.md: resolve()'s "known" flag, the OSError wording and the "RA=133.79" example (see 2e). The
-  _fmt and stack_epoch docstrings are out of date.
+- OPEN. RELEASE_MARKERS has 6 entries; a 7th distinct release raises KeyError (plots.py). Not in this
+  round's list.
+- FIXED. Light-curve grouping uses the frames' visit (new "visit" column). Epsilon Indi B at tol 0.1
+  now shows one point per visit (4) instead of splitting visit 0 into 56.7 and 37.5 mJy.
+- OPEN. parse_target rewrites unusual input ("RA 1,5 Dec 2" reaches SIMBAD as "1 5 2"; Dec-first
+  input fails). Not in this round's list.
+- PARTLY FIXED. Empty-cache error in demo mode. API.md now states that OSError can come in demo mode
+  too. SPHEREX_CACHE is still not expanded ("~") or made absolute, and api._load still lets the raw
+  OSError through.
+- FIXED. Documentation mismatches (REVIEW 2e). resolve() now returns known=True for a test target's
+  coordinates (code fix); the OSError wording and the RA= example (now "RA=133.795129 Dec=-7.245147",
+  which resolves to WISE 0855) are corrected; the _fmt and stack_epoch docstrings are updated.
+- FIXED. Difference labels. Panels read "earlier: <date>", "later: <date>", "later minus earlier"
+  with "red = brighter later, blue = brighter earlier" in prepare_demo.py, lesson7_diff.py,
+  explore.py and api.picture "pair". The pair is now always later minus earlier, whichever order a
+  and b are given in (same image either way; the same visit twice is a ValueError). Band differences
+  say "red = brighter in D6, blue = brighter in scaled D2".
+
+STILL OPEN (data side)
+
+MEDIUM
+- epochs.py stack_epoch clipping.
+  What is wrong: in crowded fields the clipping rejects more than defects. clipped_fraction is 9.1%
+  for RW Aur D1 visit 0 (3-5% elsewhere, 1% for WISE 0855), probably star edges that differ between
+  frames.
+  Evidence so far: the target sums moved by under 0.4% for RW Aur in the first review. Not looked
+  at further.
+  Fix: compare sigma 4 with sigma 5 on RW Aur's field stars, and raise it if the fraction drops
+  without bringing the blobs back.
+- WISE 0855 light curve.
+  What is wrong: the 0.33 -> 0.63 mJy "doubling" is still drawn as a line between two visit
+  averages, and the 0.33 comes from one usable frame. It now carries three caveats (wavelengths
+  4.486-4.519 µm, the dominant 6″ neighbour, upper limits), but the line itself still invites a
+  reading as variability.
+  Fix: mark single-frame visit averages (open symbol) or draw no line when a visit has one point.
+- prepare_demo.py save_flipbook_and_diff.
+  What is wrong: the backup difference.png has no "few frames: unreliable" note; only the API titles
+  do. WISE 0855's earlier panel is a 3-frame median and looks noisier than the later one.
+  Fix: put api._few() into that figure's panel title (2 lines).
+
+LOW
+- plots.py plot_light_curve_simple.
+  What is wrong: at wide tolerances (5-6 points per visit) the wavelength labels overlap and become
+  unreadable (Epsilon Indi B at tol 0.1). This view always carries the wide-tolerance warning.
+  Fix: label only the visit averages with their wavelength range when a visit has more than 3 points.
+- visits(detector=...).
+  What is wrong: visits with no image from that detector get n_min 0 and clipped_fraction NaN
+  (R Draconis D3 in visits 1, 2, 5). This is correct, but not documented as "no picture".
+  Fix: one line in API.md.
+- The item list named "api.frames", which does not exist in the API. clip was passed through
+  flipbook, player_html, picture and visits instead.
+- From the first review, still open: RELEASE_MARKERS (6 releases at most), parse_target rewriting
+  unusual input, and SPHEREX_CACHE expansion (see above).
 
 Not checked: the Streamlit app (not installed, out of scope); downloads and refresh=True (need the
-network); asteroid overlay content; whether every hole in the WISE 0855 first visit comes from the
-same frame (only the deepest was traced).
+network); asteroid overlay content.
+
+
+4. SECOND ROUND: CHECKS AND READINESS
+
+Every item was followed by an offline smoke test of every view on Barnard's Star and Epsilon Indi B,
+plus a check on the target the item concerned. All smoke tests passed [ran].
+
+Item checks [ran]:
+- Few-frame stacking. WISE 0855 visit 0: -31 sigma hole -> -4 sigma.
+  The target's peak moved 0.0944 -> 0.1106, which is 0.5 sigma of the stack noise; the 2.5 px sum
+  moved 1.03 -> 1.15, which is 0.9 sigma. With 3 frames reading 0.072, 0.159 and 0.161, the median
+  simply picks a different value than the mean. Pictures only; photometry is measured separately.
+  Barnard and Epsilon Indi B peaks unchanged; n_min 18-30 there, 3 for WISE 0855 visit 0.
+- clip. clip=False is bit-identical to the 6c8b275 stacks for all 4 Epsilon Indi B visits
+  (max difference 0), blobs -129/-165/-171 sigma included; clip=True gives 0/-1/-1 sigma.
+  clipped_fraction: Epsilon Indi B 2.3-4.3%, WISE 0855 0.9-1.1%.
+- Remaining items: as described in section 3.
+
+After all items [ran]:
+a. demo/ rebuilt offline: prepare_demo.py --skip-explore 30 of 30 steps OK; make_gallery.py 45 of 45
+   products, none failed. cache/ unchanged: 1758 files, none newer than the start of the branch.
+   Committed as 33ab3c2.
+b. Every api view for all five targets: all OK except the asteroid overlay, which fails offline as
+   expected.
+   Measurements equal to REVIEW 2b:
+   - light-curve visit means: Epsilon Indi B 40.55 / 39.79 / 44.69; RW Aur 153.86 / 156.92 / 231.81;
+     WISE 0855 0.33 / 0.63;
+   - spectrum channels: 62 / 53 / 79; R Draconis 76 lower limits;
+   - flags rows 9-11; visits 3 / 4 / 3 / 3 / 6.
+   New outputs only: the visit and release columns, the warnings, and n_min / clipped_fraction.
+   First video, timed one target at a time (REVIEW 2b in brackets): Barnard 6.3 s (5.7),
+   Epsilon Indi B 4.6 (4.4), WISE 0855 2.4 (2.4), RW Aur 2.7 (2.8), R Draconis 4.2 (4.2).
+   Nothing is slower by more than 12%.
+c. demo/WISE_0855/difference.png [saw]: the black hole at about 8h55m00s -7°14.2′ in the earlier
+   panel is gone, and so is the red spot it made. The one strong red spot left is WISE 0855 itself,
+   at the centre of the field. The panels read "earlier: 2025-05-05", "later: 2026-04-27",
+   "later minus earlier (red = brighter later, blue = brighter earlier)".
+
+Readiness (data side):
+- Data pipeline: 90% (was 85%). Stacking is now robust to single-frame defects at every frame count
+  from 3 up, with a raw-average option and per-visit statistics; downloads are still one at a time,
+  and the network path was not tested.
+- Science correctness: 85% (was 65%). The three misleading cases from REPORT.md are fixed or
+  carry specific caveats on the figure and in the warnings. What is left: WISE 0855's
+  one-frame "doubling" line, and the clipping's 9% rejection in a crowded field, not yet understood.
+- Documentation: 85% (was 45%). README and API.md match the code (all 12 signatures checked),
+  including stacking and its limits; missing are presentation material and anything about the
+  app's own behaviour, which was not run.
