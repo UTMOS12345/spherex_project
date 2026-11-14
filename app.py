@@ -20,6 +20,7 @@ TARGETS = ["Barnard's Star", "Epsilon Indi B", "WISE 0855", "RW Aur", "R Draconi
 VIEWS = ["video", "compare", "overlays", "light curve", "spectrum", "data", "about"]
 MODES = ["normal", "difference", "minusmean"]
 STEPS = list(api.TIME_STEPS)                # "per visit", "monthly", "weekly", "every frame"
+MAX_PICK = 40                               # more pictures than this: no "choose pictures" box
 # only to fill in the boxes when api.defaults itself fails (it is not an API call)
 FALLBACK = dict(detector="D2", band=1.6, tol=0.02)
 
@@ -93,23 +94,25 @@ def cached_defaults(text, live):
 
 
 @st.cache_data(show_spinner=False, max_entries=12)
-def cached_player(text, detector, fov, mode, wl, fps, live, clip, days):
+def cached_player(text, detector, fov, mode, wl, fps, live, clip, days, pictures):
     """The interactive player as one HTML page. `live` is only part of the cache key: live mode
-    may see other data. clip=False and each time step (days) are different sets of pictures."""
-    return call(api.player_html, text, detector, fov, mode, fps, wl, days, width=600, clip=clip)
+    may see other data. clip=False and each time step (days) are different sets of pictures;
+    pictures is None (all) or a tuple of rows of api.epochs."""
+    return call(api.player_html, text, detector, fov, mode, fps, wl, days, width=600, clip=clip,
+                pictures=pictures)
 
 
 @st.cache_data(show_spinner=False, max_entries=8)
-def cached_flipbook(text, detector, fov, mode, wl, fps, live, clip, days):
+def cached_flipbook(text, detector, fov, mode, wl, fps, live, clip, days, pictures):
     """GIF bytes for the export button. Same key rule as the player."""
-    return call(api.flipbook, text, detector, fov, mode, fps, wl, days, clip=clip)
+    return call(api.flipbook, text, detector, fov, mode, fps, wl, days, clip=clip, pictures=pictures)
 
 
 @st.cache_data(show_spinner=False, max_entries=16)
-def cached_epochs(text, detector, fov, wl, clip, days, live):
-    """One row per picture of the player with these settings (api.epochs). It shares the stacks
-    the player builds, so after the player it is one cheap call."""
-    return call(api.epochs, text, detector, fov, wl, days, clip)
+def cached_epochs(text, detector, fov, wl, clip, days, pictures, live):
+    """One row per picture of the player with these settings (api.epochs; pictures as for the
+    player). It shares the stacks the player builds, so it costs nothing extra."""
+    return call(api.epochs, text, detector, fov, wl, days, clip, pictures)
 
 
 @st.cache_data(show_spinner=False, max_entries=8)
@@ -158,14 +161,31 @@ def target_detector():
         return FALLBACK["detector"]
 
 
-def picture_counts(text, detector, fov, wl, clip, days):
+def picture_counts(text, detector, fov, wl, clip, days, pictures):
     """api.epochs meta for these settings: n_pictures, n_frames_total, n_few_frames (pictures
     resting on fewer than 4 frames under the centre), or None. api.epochs shares the stacks the
     player already built, so this is one cheap call. A failure here drops the line, never the video."""
     try:
-        return dict(cached_epochs(text, detector, fov, wl, clip, days, LIVE).meta)
+        return dict(cached_epochs(text, detector, fov, wl, clip, days, pictures, LIVE).meta)
     except Exception:
         return None
+
+
+def choose_pictures(text, detector, fov, wl, clip, days):
+    """The "choose pictures" box, filled from api.epochs -> None (all pictures), or a sorted
+    tuple of the chosen rows. Above MAX_PICK pictures the box is hidden (None).
+    The box has its own key per setting, so a choice never carries over to other pictures."""
+    table = cached_epochs(text, detector, fov, wl, clip, days, None, LIVE)
+    n = len(table)
+    if n > MAX_PICK:
+        st.caption("choose a coarser time step to pick pictures")
+        return None
+    rows = list(range(n))
+    chosen = st.multiselect(
+        "choose pictures", rows, default=rows,
+        format_func=lambda i: f"{table['date'][i]} ({plural(int(table['n_frames'][i]), 'frame')})",
+        key="pics|" + "|".join(str(x) for x in (text, detector, fov, wl, clip, days)))
+    return None if len(chosen) == n else tuple(sorted(chosen))
 
 
 def plural(n, word):
@@ -257,13 +277,18 @@ def video_panel():
     fov = float(st.session_state["fov"])
     clip = not st.session_state["raw"]
     days = st.session_state["days"]
-    key = (text, detector, fov, mode, wl, fps, LIVE, clip, days)
+    with st.spinner("building the pictures..."):
+        pictures = choose_pictures(text, detector, fov, wl, clip, days)
+    if pictures == ():
+        st.info("choose at least one picture.")
+        return
+    key = (text, detector, fov, mode, wl, fps, LIVE, clip, days, pictures)
 
     with st.spinner("building the player..."):
         html = cached_player(*key)
     # 800 px leaves room for a square picture plus the control bar, so nothing needs scrolling
     embed_html(html, height=800)
-    counts = picture_counts(text, detector, fov, wl, clip, days)
+    counts = picture_counts(text, detector, fov, wl, clip, days, pictures)
     if counts:
         line = (f"{plural(counts['n_pictures'], 'picture')} from "
                 f"{plural(counts['n_frames_total'], 'frame')}")
