@@ -14,8 +14,15 @@ is `app_example.py` (`streamlit run app_example.py`).
   wavelength differences between light-curve points and wide wavelength windows. The same text is
   drawn small at the bottom of the figure; that is not enough on its own.
 - **Build visit pickers from `api.epochs(...)`, not from `api.visits(...)`**: called with the same
-  settings as the picture or video, its row i is exactly `visit=i` of `picture` and frame i of the
-  video, while `api.visits` also lists visits that have no picture for that detector.
+  settings as the picture or video (including `days`), its row i is exactly `visit=i` of `picture`
+  and `overlay_figure` and frame i of the video, while `api.visits` also lists visits that have no
+  picture for that detector.
+- **Offer a time step** from `api.TIME_STEPS` and pass the same `days` to `player_html`,
+  `flipbook`, `epochs`, `picture` and `overlay_figure`; pass the same `pictures` list to
+  `player_html`, `flipbook` and `epochs`. Put `days` and `pictures` in every cache key
+  (`st.cache_data` arguments) that involves these functions, or a cached video will not match its
+  picker. Show `epochs(...).meta` as "N pictures from M frames" (and how many are few-frames), and
+  for "every frame" say why the brightness flickers (see "Pictures, frames and speed").
 - **Use `api.defaults(text)`** for the per-target detector, light-curve wavelength and tolerance.
   For the five test targets these are the settings already in `cache/`, and the function also
   recognises aliases and coordinates of those targets.
@@ -49,6 +56,41 @@ average of the frames, as before the clipping was added) or weekly pictures (`da
 such sources. Constant stars, and stars whose brightness changes with wavelength across a detector,
 are not affected.
 
+## Pictures, frames and speed
+
+- A **frame** is one SPHEREx exposure of one detector (about 2 minutes apart within a visit). A
+  **picture** is what the player shows at one step: the frames of one time step stacked into one
+  image. **fps** (pictures per second) is only playback speed: it changes nothing in the pictures.
+- The time step (`days`, `api.TIME_STEPS`) sets how long one picture may cover:
+
+  | Step | `days` | Pictures (test targets, default detector) | Trade-off |
+  |---|---|---|---|
+  | per visit | 60 | 3-4 | deepest, cleanest pictures; one per visit, about 6 months apart |
+  | monthly | 30 | 3-6 | splits the longest visits; nearly as clean |
+  | weekly | 7 | 5-11 | follows changes within a visit; fewer frames each, so noisier and more often "few frames" |
+  | every frame | 0 | 45-91 | one exposure per picture: no stacking, no clipping |
+
+- **Every frame** (`days=0`): each exposure is cleaned and resampled onto the same grid on its own,
+  with no clipping; every picture is marked few-frames and its date includes the time. Brightness
+  **flickers** from picture to picture because each frame sees the target at a slightly different
+  wavelength (the wavelength changes across a SPHEREx detector), and single-frame defects are not
+  removed. In exchange, fast movers such as asteroids, which the clipped stacks suppress, show up.
+  Exposures taken at the same moment on paired detectors (D1+D4, D2+D5, D3+D6) form one picture.
+  More than 150 pictures (`epochs.MAX_PICTURES`) raise `ValueError`: use weekly pictures or one
+  detector. Cost on the test targets: stacks 3-5 s (as for the other steps), player 4-6 s and
+  about 2 MB, GIF 15-20 s and 3-5 MB (per visit: player 0.2 s, GIF under 1 s).
+- `pictures=[i, j, ...]` (`player_html`, `flipbook`, `epochs`): only those rows of
+  `api.epochs(...)` for the same settings, in time order. "difference" subtracts the first chosen
+  picture; "minusmean" averages only the chosen ones; difference modes need at least 2. With
+  `pictures`, `epochs` returns only those rows (row k = frame k); its `index` column keeps the
+  number in the full table, which is what `picture(visit=...)` takes.
+- `real_time=True` (`player_html`): each picture stays on screen in proportion to the time gap to
+  the next one, between 1 and `max_hold` (6) times the base interval 1/fps, the same rule as the GIF
+  timeline; the last picture stays `max_hold` times. The player has a "real time gaps" checkbox to
+  switch this while it plays.
+- Pass the same `days` to `player_html`, `flipbook`, `epochs`, `picture` and `overlay_figure`, and
+  the same `pictures` to `player_html`, `flipbook` and `epochs`; include both in cache keys.
+
 ## Settings
 
 | Name | What it is |
@@ -57,6 +99,7 @@ are not affected.
 | `api.demo_mode()` | `True` when demo mode is on. |
 | `api.defaults(text)` | dict `detector`, `band` (µm), `tol` (µm) for a target: the cached settings for the five test targets (`api.DEMO_DEFAULTS`), else `api.OTHER_DEFAULTS` (D2, 1.6, 0.02). |
 | `api.MAX_FOV` | 10.0: the largest field of view in arcmin. |
+| `api.TIME_STEPS` | `{"per visit": 60, "monthly": 30, "weekly": 7, "every frame": 0}`: labels and `days` values for a time-step picker. |
 | `api.MAX_SAFE_TOL` | 0.05: light curves with a wider wavelength window get a warning. |
 | `api.WL_SPREAD_UM` | 0.01: light curves whose usable points differ in wavelength by more than this get a warning. |
 | `set_style(dark=False)` | from `spherex`: one look for every figure; call once, `dark=True` for a dark page. |
@@ -67,11 +110,11 @@ are not affected.
 |---|---|---|
 | Search box | `api.resolve(text)` | dict: `name`, `ra`, `dec` (degrees, catalogue position), `ra_hms`, `dec_dms`, `has_motion`, `pm_ra`, `pm_dec` (mas/yr), `known` (True for the five test targets, by name, alias or coordinates) |
 | Visits | `api.visits(text, refresh=False, detector=None, fov=4.0, clip=True)` | table: `visit`, `first_date`, `last_date`, `n_frames`, `D1`..`D6` (frames per detector), `releases`; with `detector`, also `n_min` and `clipped_fraction` of that detector's stacks (this stacks the visits if needed) |
-| Pictures index | `api.epochs(text, detector=None, fov=4.0, wl=None, days=60, clip=True)` | table, one row per picture the other functions build for these settings, in their order: `index`, `visit` (the `api.visits` number most of its frames belong to), `date` (as in the titles), `first_date`, `last_date` (of the frames used), `n_frames`, `n_min`, `clipped_fraction`, `few_frames`, `detectors_used`, `releases` |
-| Video (GIF) | `api.flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, timeline=True, clip=True)` | GIF bytes |
-| Video (player) | `api.player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, width=700, clip=True)` | HTML string: the same pictures with play/pause, step and a slider (`streamlit.components.v1.html(html, height=...)`) |
-| Pictures | `api.picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=None, long="D6", short="D2", rgb="D6,D3,D1", clip=True)` | figure |
-| Overlays | `api.overlay_figure(text, detector="D2", fov=4.0, visit=-1, gaia=True, wise=True, asteroids=False, min_pm=50, arrow_years=5)` | (figure, notes dict) |
+| Pictures index | `api.epochs(text, detector=None, fov=4.0, wl=None, days=60, clip=True, pictures=None)` | table, one row per picture the other functions build for these settings, in their order: `index`, `visit` (the `api.visits` number most of its frames belong to), `date` (as in the titles; with time for `days=0`), `first_date`, `last_date` (of the frames used), `n_frames`, `n_min`, `clipped_fraction`, `few_frames`, `detectors_used`, `releases`; `meta`: `n_pictures`, `n_frames_total`, `n_few_frames` |
+| Video (GIF) | `api.flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, timeline=True, clip=True, pictures=None)` | GIF bytes |
+| Video (player) | `api.player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, width=700, clip=True, pictures=None, real_time=False, max_hold=6)` | HTML string: the same pictures with play/pause, step, a slider and a "real time gaps" checkbox (`streamlit.components.v1.html(html, height=...)`) |
+| Pictures | `api.picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=None, long="D6", short="D2", rgb="D6,D3,D1", clip=True, days=60)` | figure |
+| Overlays | `api.overlay_figure(text, detector="D2", fov=4.0, visit=-1, gaia=True, wise=True, asteroids=False, min_pm=50, arrow_years=5, days=60)` | (figure, notes dict) |
 | Light curve | `api.light_curve_figure(text, band=1.6, tol=0.02)` | (figure, table) |
 | Spectrum | `api.spectrum_figure(text, visit=-1, all_visits=False)` | (figure, table) |
 | Flags | `api.flags_figure(text, detector="D2", visit=-1, frame=0)` | (figure, table) |
@@ -81,9 +124,9 @@ Show a figure with `st.pyplot(fig)` and then `plt.close(fig)`; a table with
 
 `api.epochs` uses the same stacks and memory cache as the pictures, so it never disagrees with
 them and costs nothing once a video has been built (about 15 ms). Row i is `picture(..., visit=i)`,
-the `a` / `b` of kind "pair", and frame i of `flipbook` and `player_html` in every mode, when they
-get the same `detector`, `fov`, `wl` and `clip`. With `days` other than 60 (weekly pictures) the rows
-match the videos only: `picture` always uses one picture per visit. `detector=None` means D2 unless
+the `a` / `b` of kind "pair", `overlay_figure(..., visit=i)`, and frame i of `flipbook` and
+`player_html` in every mode, when they get the same `detector`, `fov`, `wl`, `clip` and `days`
+(and, for the videos, the same `pictures`). `detector=None` means D2 unless
 `wl` is given. Example: for R Draconis with D3 the rows are visits 0, 3 and 4 of `api.visits`
 (D3 did not observe it in visits 1, 2 and 5).
 
@@ -100,8 +143,13 @@ match the videos only: `picture` always uses one picture per visit. `detector=No
 - `fov`: picture width in arcmin, 1 to 10.
 - `mode` (`flipbook`, `player_html`): "normal" (one picture per visit), "difference" (each visit
   minus the first), "minusmean" (each visit minus the average of the others).
-- `days`: the longest time one picture may cover: 60 = one picture per visit; 7 = weekly pictures
-  (more pictures, each from fewer frames: noisier, and more often "few frames").
+- `days` (`epochs`, `flipbook`, `player_html`, `picture`, `overlay_figure`): the longest time one
+  picture may cover: 60 = one picture per visit, 30 monthly, 7 weekly (more pictures, each from
+  fewer frames: noisier, and more often "few frames"), 0 = one picture per exposure. See
+  "Pictures, frames and speed".
+- `pictures` (`epochs`, `flipbook`, `player_html`): a list of row numbers of `api.epochs` for the
+  same settings; only those pictures are used.
+- `real_time`, `max_hold` (`player_html`): hold each picture in proportion to the gap to the next.
 - `timeline` (`flipbook`): a time bar under the picture, and each picture stays on screen longer
   when the gap to the next is longer.
 - `clip` (`flipbook`, `player_html`, `picture`, `visits`): True = the stacking described above;
@@ -111,7 +159,7 @@ match the videos only: `picture` always uses one picture per visit. `detector=No
   blue = brighter earlier), "banddiff" (`long` minus scaled `short`, latest visit with both; red =
   brighter in `long`, blue = brighter in scaled `short`), "rgb" (`rgb` = "red,green,blue"
   detectors, latest visit with all three).
-- Visit numbers: 0 = first, -1 = latest.
+- Visit (picture) numbers: rows of `api.epochs` with the same settings; 0 = first, -1 = latest.
 - `min_pm`, `arrow_years` (`overlay_figure`): sources faster than `min_pm` mas/yr get an arrow
   showing where they will be `arrow_years` later. CatWISE sources also need a motion measured at
   5 sigma or better and no artefact flag.
@@ -241,7 +289,8 @@ can be joined into one text:
 
 Bad input and missing data raise `ValueError` with a message written for users (unknown name,
 unknown detector, field of view out of range, no images, not in the offline cache in demo mode,
-the same visit twice in a pair). A failed server call raises `OSError`: in demo mode after one
+the same visit twice in a pair, more than 150 pictures with `days=0`, fewer than 2 chosen pictures
+for a difference video). A failed server call raises `OSError`: in demo mode after one
 short try (for example a target whose frame list is not in `cache/`), otherwise after retries.
 Catch both: `except ValueError as e: st.warning(str(e))`, then `except Exception` for anything else.
 
@@ -251,7 +300,8 @@ Catch both: `except ValueError as e: st.warning(str(e))`, then `except Exception
 |---|---|
 | First video of a cached target (stacking the visits) | 2-7 s |
 | Same target and settings again, other video modes | 0.2-0.4 s (memory cache) |
-| GIF | about 1 s |
+| GIF | about 1 s (every frame: 15-20 s) |
+| Player, every frame (`days=0`) | 4-6 s, about 2 MB |
 | Deep or pair picture after the video | 0.1 s |
 | Band difference, RGB | 1-6 s |
 | Overlay (catalogues cached) | 0.2-0.3 s |
