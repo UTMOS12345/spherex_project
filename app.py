@@ -93,16 +93,23 @@ def cached_defaults(text, live):
 
 
 @st.cache_data(show_spinner=False, max_entries=12)
-def cached_player(text, detector, fov, mode, wl, fps, live, clip):
-    """The interactive player as one HTML page. `live` and `clip` are only part of the cache
-    key: live mode may see other data, and clip=False is a different set of stacks."""
-    return call(api.player_html, text, detector, fov, mode, fps, wl, width=600, clip=clip)
+def cached_player(text, detector, fov, mode, wl, fps, live, clip, days):
+    """The interactive player as one HTML page. `live` is only part of the cache key: live mode
+    may see other data. clip=False and each time step (days) are different sets of pictures."""
+    return call(api.player_html, text, detector, fov, mode, fps, wl, days, width=600, clip=clip)
 
 
 @st.cache_data(show_spinner=False, max_entries=8)
-def cached_flipbook(text, detector, fov, mode, wl, fps, live, clip):
+def cached_flipbook(text, detector, fov, mode, wl, fps, live, clip, days):
     """GIF bytes for the export button. Same key rule as the player."""
-    return call(api.flipbook, text, detector, fov, mode, fps, wl, clip=clip)
+    return call(api.flipbook, text, detector, fov, mode, fps, wl, days, clip=clip)
+
+
+@st.cache_data(show_spinner=False, max_entries=16)
+def cached_epochs(text, detector, fov, wl, clip, days, live):
+    """One row per picture of the player with these settings (api.epochs). It shares the stacks
+    the player builds, so after the player it is one cheap call."""
+    return call(api.epochs, text, detector, fov, wl, days, clip)
 
 
 @st.cache_data(show_spinner=False, max_entries=8)
@@ -151,12 +158,12 @@ def target_detector():
         return FALLBACK["detector"]
 
 
-def few_frames(text, detector, fov, wl, clip):
+def few_frames(text, detector, fov, wl, clip, days):
     """True when at least one picture of these settings rests on fewer than 4 frames.
     api.epochs shares the stacks the player already built, so this is one cheap call.
     A failure here drops the note, never the video."""
     try:
-        table = call(api.epochs, text, detector, fov, wl, clip=clip)
+        table = cached_epochs(text, detector, fov, wl, clip, days, LIVE)
         return any(bool(x) for x in table["few_frames"])
     except Exception:
         return False
@@ -241,13 +248,14 @@ def video_panel():
     wl = st.session_state["wl"].strip() or None
     fov = float(st.session_state["fov"])
     clip = not st.session_state["raw"]
-    key = (text, detector, fov, mode, wl, fps, LIVE, clip)
+    days = st.session_state["days"]
+    key = (text, detector, fov, mode, wl, fps, LIVE, clip, days)
 
     with st.spinner("building the player..."):
         html = cached_player(*key)
     # 800 px leaves room for a square picture plus the control bar, so nothing needs scrolling
     embed_html(html, height=800)
-    if few_frames(text, detector, fov, wl, clip):
+    if few_frames(text, detector, fov, wl, clip, days):
         st.warning(f"{api.FEW_FRAMES_NOTE}: some pictures here rest on fewer than 4 frames "
                    "under the centre, so one bad frame can survive in them.")
     st.caption(READ_PLAYER[mode])
