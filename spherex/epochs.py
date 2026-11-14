@@ -76,9 +76,10 @@ def stack_epoch(paths, grid_wcs, shape, bad_flags=BAD_FLAGS, keep_saturated_star
     return_count=True also returns how many frames actually contributed.
     return_stats=True instead returns (stack, coverage, stats), stats = dict n (frames used),
     n_min (central_min of the coverage), n_values (pixel values that went in), n_rejected
-    (of those, how many the sigma clipping dropped; 0 with clip=False)."""
-    layers = []
-    for p in paths:
+    (of those, how many the sigma clipping dropped; 0 with clip=False), used (indices into
+    `paths` of the frames that went into the stack)."""
+    layers, used_idx = [], []
+    for i_path, p in enumerate(paths):
         f = clean_frame(p, bad_flags, keep_saturated_stars)
         img = f["image"] - np.nanmedian(f["image"])       # remove what the ZODI model missed
         if keep_saturated_stars:
@@ -93,10 +94,11 @@ def stack_epoch(paths, grid_wcs, shape, bad_flags=BAD_FLAGS, keep_saturated_star
             img = np.where(outside, np.nan, img)
         layers.append(reproject_interp((img, f["wcs"]), grid_wcs,
                                        shape_out=shape, return_footprint=False))
+        used_idx.append(i_path)
     if not layers:
         empty = (np.full(shape, np.nan), np.zeros(shape, int))
         if return_stats:
-            return (*empty, {"n": 0, "n_min": 0, "n_values": 0, "n_rejected": 0})
+            return (*empty, {"n": 0, "n_min": 0, "n_values": 0, "n_rejected": 0, "used": []})
         return (*empty, 0) if return_count else empty
     cube = np.array(layers)                               # shape (n_frames, ny, nx)
     coverage = np.isfinite(cube).sum(axis=0)              # how many frames saw each pixel
@@ -121,7 +123,7 @@ def stack_epoch(paths, grid_wcs, shape, bad_flags=BAD_FLAGS, keep_saturated_star
             rejected = int((np.ma.getmaskarray(clipped) & np.isfinite(cube))[:, used].sum())
     if return_stats:
         return stack, coverage, {"n": len(layers), "n_min": central_min(coverage),
-                                 "n_values": int(coverage.sum()), "n_rejected": rejected}
+                                 "n_values": int(coverage.sum()), "n_rejected": rejected, "used": used_idx}
     return (stack, coverage, len(layers)) if return_count else (stack, coverage)
 
 
@@ -153,7 +155,9 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
                 wl_range=None, clip=True):
     """The whole Lesson 6 chain.
     frames table + target SkyCoord + detector -> list of dicts, one per epoch:
-    epoch, detector, mjd, date, n_frames, n_min (fewest frames under the centre, per detector),
+    epoch, detector, mjd, date, first_mjd, last_mjd (of the frames used), releases, visit (the
+    frames table's own 'epoch' number, e.g. api.visits', for most of the frames used; -1 if the
+    table had none), n_frames, n_min (fewest frames under the centre, per detector),
     clipped_fraction (share of pixel values the sigma clipping rejected), detectors_used,
     wl_range, clip, image, coverage, wcs.
     clip: see stack_epoch (True = sigma-clipped / median stacks, False = plain nanmean).
@@ -183,6 +187,8 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
     det = "+".join(dets) if wl_range is None else f"{wl_range[0]:g}-{wl_range[1]:g}um"
     if size_deg is None:     # the cutout must cover the grid whatever the frame's rotation (x 1.5)
         size_deg = round(max(0.1, grid_arcmin / 60 * 1.5), 3)
+    frames = frames.copy()                    # the caller's visit numbers (api.visits), if it has them
+    frames["source_visit"] = np.asarray(frames["epoch"]) if "epoch" in frames.colnames else -1
     frames = assign_epochs(frames, gap_days, max_len_days)
     t_mid = Time((frames["mjd"].min() + frames["mjd"].max()) / 2, format="mjd")
     grid_wcs, shape = make_grid(at_time(target, t_mid), grid_arcmin, pixscale_arcsec)
@@ -191,12 +197,14 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
     for e in sorted(set(frames["epoch"])):
         rows = frames[(frames["epoch"] == e) & np.isin(frames["detector"], dets)]
         stacks, coverages, used, have, skipped, n_mins, n_vals, n_rej = [], [], 0, [], {}, [], 0, 0
+        used_rows = []                                    # the frames that went into the picture
         for d in dets:
-            paths = []
+            paths, path_rows = [], []
             for row in rows[rows["detector"] == d]:
                 center = at_time(target, Time(row["mjd"], format="mjd"))   # same centre as prefetch
                 try:
                     paths.append(get_cutout(row["access_url"], center, size_deg))
+                    path_rows.append(row)
                 except OSError as err:
                     skipped[str(err)] = skipped.get(str(err), 0) + 1
             if paths:
@@ -205,6 +213,7 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
                 if stats["n"] == 0:
                     continue                              # no frame of this detector saw the range
                 stacks.append(st); coverages.append(cov); used += stats["n"]; have.append(d)
+                used_rows += [path_rows[i] for i in stats["used"]]
                 n_mins.append(stats["n_min"]); n_vals += stats["n_values"]; n_rej += stats["n_rejected"]
         for reason, count in skipped.items():
             print(f"  epoch {e}: skipped {count} frame(s): {reason}")
@@ -215,7 +224,13 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
             stack = np.nanmean(np.array(stacks), axis=0) if len(stacks) > 1 else stacks[0]
         coverage = np.sum(coverages, axis=0)
         mjd = float(np.mean(rows["mjd"]))
-        epochs.append({"epoch": int(e), "detector": det, "mjd": mjd,
+        src = [int(r["source_visit"]) for r in used_rows]
+        epochs.append({"first_mjd": float(min(r["mjd"] for r in used_rows)),
+                       "last_mjd": float(max(r["mjd"] for r in used_rows)),
+                       "releases": ", ".join(sorted({str(r["collection"]).removeprefix("spherex_").upper()
+                                                     for r in used_rows if "collection" in r.colnames})),
+                       "visit": max(set(src), key=lambda v: (src.count(v), -v)),   # most frames; ties: earlier
+                       "epoch": int(e), "detector": det, "mjd": mjd,
                        "date": Time(mjd, format="mjd").iso[:10], "n_frames": used,
                        "detectors_used": "+".join(have), "wl_range": wl_range,
                        "n_min": min(n_mins),             # weakest per-detector frame count in the centre

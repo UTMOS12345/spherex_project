@@ -13,6 +13,9 @@ is `app_example.py` (`streamlit run app_example.py`).
   it. It explains saturation, neighbouring stars in the measuring circle, mixed data releases,
   wavelength differences between light-curve points and wide wavelength windows. The same text is
   drawn small at the bottom of the figure; that is not enough on its own.
+- **Build visit pickers from `api.epochs(...)`, not from `api.visits(...)`**: called with the same
+  settings as the picture or video, its row i is exactly `visit=i` of `picture` and frame i of the
+  video, while `api.visits` also lists visits that have no picture for that detector.
 - **Use `api.defaults(text)`** for the per-target detector, light-curve wavelength and tolerance.
   For the five test targets these are the settings already in `cache/`, and the function also
   recognises aliases and coordinates of those targets.
@@ -64,6 +67,7 @@ are not affected.
 |---|---|---|
 | Search box | `api.resolve(text)` | dict: `name`, `ra`, `dec` (degrees, catalogue position), `ra_hms`, `dec_dms`, `has_motion`, `pm_ra`, `pm_dec` (mas/yr), `known` (True for the five test targets, by name, alias or coordinates) |
 | Visits | `api.visits(text, refresh=False, detector=None, fov=4.0, clip=True)` | table: `visit`, `first_date`, `last_date`, `n_frames`, `D1`..`D6` (frames per detector), `releases`; with `detector`, also `n_min` and `clipped_fraction` of that detector's stacks (this stacks the visits if needed) |
+| Pictures index | `api.epochs(text, detector=None, fov=4.0, wl=None, days=60, clip=True)` | table, one row per picture the other functions build for these settings, in their order: `index`, `visit` (the `api.visits` number most of its frames belong to), `date` (as in the titles), `first_date`, `last_date` (of the frames used), `n_frames`, `n_min`, `clipped_fraction`, `few_frames`, `detectors_used`, `releases` |
 | Video (GIF) | `api.flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, timeline=True, clip=True)` | GIF bytes |
 | Video (player) | `api.player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, width=700, clip=True)` | HTML string: the same pictures with play/pause, step and a slider (`streamlit.components.v1.html(html, height=...)`) |
 | Pictures | `api.picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=None, long="D6", short="D2", rgb="D6,D3,D1", clip=True)` | figure |
@@ -74,6 +78,14 @@ are not affected.
 
 Show a figure with `st.pyplot(fig)` and then `plt.close(fig)`; a table with
 `st.dataframe(table.to_pandas())`; GIF bytes with `st.image(gif)`.
+
+`api.epochs` uses the same stacks and memory cache as the pictures, so it never disagrees with
+them and costs nothing once a video has been built (about 15 ms). Row i is `picture(..., visit=i)`,
+the `a` / `b` of kind "pair", and frame i of `flipbook` and `player_html` in every mode, when they
+get the same `detector`, `fov`, `wl` and `clip`. With `days` other than 60 (weekly pictures) the rows
+match the videos only: `picture` always uses one picture per visit. `detector=None` means D2 unless
+`wl` is given. Example: for R Draconis with D3 the rows are visits 0, 3 and 4 of `api.visits`
+(D3 did not observe it in visits 1, 2 and 5).
 
 ## Inputs
 
@@ -116,25 +128,99 @@ motions were ignored), `asteroids_in_view` (when asked for), `n_min`, `few_frame
 `clipped_fraction` of the visit shown, and `verdict`, present when both Gaia and WISE were drawn.
 `verdict` is a catalogue check, not a detection, and says so.
 
-`light_curve_figure` table: `mjd`, `date`, `wavelength_um`, `flux_mjy`, `err_mjy`,
-`flux_min_mjy`, `detector`, `n_bad`, `saturated`, `bad_flags`, `ok`, `release` ("DR1", "QR3", ...),
-`visit` (the SPHEREx visit the frame belongs to). `flux_mjy` is NaN where the star is saturated
-(`flux_min_mjy` is then a lower limit) or where most of the measuring circle is masked (then
-`flux_min_mjy` is NaN too: not measured). Only rows with `ok` True go into the visit averages,
-one per visit. On the figure each release has its own marker and each point is labelled with
-the wavelength it was measured at.
-
-`spectrum_figure` table: one row per channel with data: `detector`, `channel` (1-17),
-`wavelength_um` (channel centre), `flux_mjy` (mean), `err_mjy`, `n`. With `all_visits=True` there
-is also a `visit` column. For a saturated target the table is every single measurement instead
-(columns `wavelength_um`, `flux_mjy`, `err_mjy`, `flux_min_mjy`, `detector`, `mjd`, `n_bad`,
-`saturated`, `bad_flags`, `ok`, `release`, and `visit` with `all_visits=True`). On the figure,
-grey triangles are lower limits of saturated measurements, open squares "masked: not measured",
-crosses "flagged, not used".
+`light_curve_figure` and `spectrum_figure` tables: every column, and how to draw each kind of
+row, is in "Drawing your own charts" below. Both tables hold everything their figure draws.
 
 `flags_figure` table: `flag`, `bit`, `percent_of_pixels`, `masked` (whether this tool masks
 it), only flags present in that exposure. If the requested exposure is not in `cache/` in demo
 mode, the next one of that visit that is cached is shown.
+
+## Drawing your own charts
+
+The tables from `light_curve_figure` and `spectrum_figure` (one visit, or `all_visits=True`)
+hold every value their figures draw, so an app can draw its own charts from them. Each row is one
+measurement: one exposure, measured in a 12″ circle at the target's position on that date.
+Brightnesses are in milli-Jansky (mJy), wavelengths in micron (µm), times in Modified Julian Days.
+
+### Columns shared by both tables
+
+| Column | Meaning | Unit |
+|---|---|---|
+| `wavelength_um` | wavelength the target was seen at in this exposure (it depends on where it lands on the detector) | µm |
+| `flux_mjy` | brightness; NaN when the measurement is saturated or masked | mJy |
+| `err_mjy` | 1-sigma uncertainty of `flux_mjy`; NaN when `flux_mjy` is NaN | mJy |
+| `flux_min_mjy` | lower limit for a saturated measurement (the true brightness is higher); NaN otherwise, and NaN if no limit could be measured | mJy |
+| `detector` | SPHEREx detector, 1-6 | - |
+| `mjd` | mid-exposure time | MJD (days) |
+| `n_bad` | masked pixels inside the measuring circle | pixels |
+| `saturated` | the star's core is saturated at this position | True/False |
+| `bad_flags` | flags found inside the circle, e.g. "NONFUNC,DICHROIC"; empty if none | text |
+| `ok` | usable: no masked pixel in the circle and not saturated | True/False |
+| `masked` | most of the circle is masked: no value at all | True/False |
+| `state` | one of `ok`, `saturated`, `masked`, `flagged` (see below) | text |
+| `release` | data release of the exposure: "DR1", "QR3", ... | text |
+| `visit` | SPHEREx visit number (0 = first), as in `api.visits` | - |
+
+`state`: **ok** = usable point. **saturated** = no brightness; `flux_min_mjy` is a lower limit if
+finite. **masked** = not measured. **flagged** = a value exists (`flux_mjy`), but some pixels in
+the circle are masked, so it is not used.
+
+### Light curve only (`light_curve_figure`)
+
+| Column | Meaning | Unit |
+|---|---|---|
+| `date` | `mjd` as a date and time (UTC) | text |
+| `visit_mjd` | time of the visit, where the visit average is drawn (mean of its rows' `mjd`) | MJD |
+| `visit_flux_mjy` | mean `flux_mjy` of the visit's `ok` rows; NaN if it has none | mJy |
+| `visit_spread_mjy` | standard deviation of those rows, or the single row's `err_mjy` when there is one; NaN if none | mJy |
+| `visit_n_ok` | number of `ok` rows in the visit | - |
+
+The `visit_*` columns repeat on every row of the same visit; take one row per `visit`.
+
+### Spectrum only (`spectrum_figure`)
+
+| Column | Meaning | Unit |
+|---|---|---|
+| `channel` | SPHEREx channel the measurement falls in, 1-17 within its detector (0 = outside the channel grid) | - |
+| `channel_wavelength_um` | centre of that channel, where the channel average is drawn | µm |
+| `channel_flux_mjy` | mean `flux_mjy` of the `ok` rows in that channel (same visit); NaN when no average is drawn | mJy |
+| `channel_err_mjy` | uncertainty of that mean | mJy |
+| `channel_n` | number of `ok` rows in the average; 0 when there is none | - |
+
+With `all_visits=False` all rows have the same `visit`; with `all_visits=True` there is one set
+per visit. The `channel_*` columns repeat on every row of the same channel and visit; take one row
+per (`visit`, `detector`, `channel`). They are NaN for a saturated visit, which is shown as lower
+limits only.
+
+### How to draw each kind of row
+
+Light curve (x = `mjd` or `date`, y = brightness):
+- **Normal point** (`state` ok): a small point at `flux_mjy` with an error bar `err_mjy`, with one
+  marker shape per `release`. The static figure labels each point with its `wavelength_um`.
+- **Lower limit** (`state` saturated, `flux_min_mjy` finite): an upward triangle at
+  `flux_min_mjy`, labelled "at least ..."; never join it to other points.
+- **Not measured** (`state` masked) and **not used** (`state` flagged): no point. If a visit has
+  no `ok` and no lower-limit row, mark the visit at the bottom as "no usable data".
+- **Visit average** (one per `visit` with `visit_n_ok` >= 2): a large filled symbol at
+  (`visit_mjd`, `visit_flux_mjy`) with an error bar `visit_spread_mjy`. Join these averages with a
+  line, in time order.
+- **Visit with a single measurement** (`visit_n_ok` = 1): a large open symbol, legend
+  "single measurement", with its own error as the bar. Do not join it to other visits by a line:
+  one exposure cannot support a trend.
+
+Spectrum (x = `wavelength_um`, y = brightness, logarithmic when it spans more than 30x):
+- **Normal point** (`state` ok): a small faint point at `flux_mjy` with error bar `err_mjy`.
+- **Channel average** (rows with finite `channel_flux_mjy`, one per channel): a large point at
+  (`channel_wavelength_um`, `channel_flux_mjy`) with error bar `channel_err_mjy`, joined by a line
+  within each detector only (no line across a detector boundary). With `all_visits=True`, one
+  colour per `visit`. A channel average with `channel_n` = 1 is a single measurement; the static
+  figure draws it like the others, but its error bar is that measurement's own error.
+- **Lower limit** (`state` saturated, `flux_min_mjy` finite): an upward triangle at `flux_min_mjy`.
+- **Not measured** (`state` masked): an open square at the bottom of the plot, legend
+  "masked: not measured".
+- **Not used** (`state` flagged): a cross at the bottom of the plot, legend "flagged, not used".
+
+Show `table.meta["warning"]` with either chart (see below).
 
 ## Warnings: `table.meta["warning"]`
 
