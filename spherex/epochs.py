@@ -3,6 +3,7 @@ import warnings
 
 import numpy as np
 from astropy.convolution import Gaussian2DKernel, interpolate_replace_nans
+from astropy.stats import sigma_clip
 from astropy.time import Time
 from astropy.wcs import WCS
 from reproject import reproject_interp
@@ -11,6 +12,9 @@ from .clean import clean_frame, BAD_FLAGS
 from .download import get_cutout
 from . import photometry as _phot
 from .targets import at_time
+
+CLIP_SIGMA = 4.0          # stacking: a frame's pixel this far from the other frames is dropped
+CLIP_MIN_FRAMES = 4       # ... only where at least this many frames cover the pixel
 
 
 def assign_epochs(frames, gap_days=30, max_len_days=60):
@@ -77,6 +81,15 @@ def stack_epoch(paths, grid_wcs, shape, bad_flags=BAD_FLAGS, keep_saturated_star
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)   # "mean of empty slice" where coverage = 0
         stack = np.nanmean(cube, axis=0)
+        if len(layers) >= CLIP_MIN_FRAMES:
+            # One bad frame (an unflagged hole of -50 where the sky is ~0) would otherwise
+            # survive the mean as a -150 sigma blob, and as a fake source in differences.
+            # Each pixel is clipped against its own frames (median, MAD spread), so a star
+            # that is in every frame keeps its own centre and is not clipped.
+            clipped = sigma_clip(cube, sigma=CLIP_SIGMA, maxiters=3, cenfunc="median",
+                                 stdfunc="mad_std", axis=0, masked=True)
+            robust = np.ma.mean(clipped, axis=0).filled(np.nan)
+            stack = np.where(coverage >= CLIP_MIN_FRAMES, robust, stack)
     return (stack, coverage, len(layers)) if return_count else (stack, coverage)
 
 
