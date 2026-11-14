@@ -321,7 +321,8 @@ def picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=
     """One picture -> matplotlib figure (st.pyplot(fig)).
     kind: 'visit'    one visit's stack (visit = 0, 1, ... or -1 for the latest)
           'deep'     all visits added
-          'pair'     visit a minus visit b (red = brighter in a, blue = brighter in b)
+          'pair'     the later of visits a and b minus the earlier (red = brighter later,
+                     blue = brighter earlier), whichever order a and b are given in
           'banddiff' detector `long` minus scaled detector `short`, latest common visit:
                      normal stars cancel, unusually red (cold) objects stay
           'rgb'      colour picture from three detectors 'red,green,blue'
@@ -340,10 +341,14 @@ def picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=
         else:
             if len(eps) < 2:
                 raise ValueError("A difference needs at least 2 visits.")
-            d = difference(_pick(eps, a), _pick(eps, b))
-            fig, _ = _image_figure(d["image"], d["wcs"], _with_few(f"{text}  {label}  {d['label']}\n"
-                                   "red = brighter in the first date, blue = in the second",
-                                   _pick(eps, a), _pick(eps, b)), _marker(target, d), diverging=True)
+            later, earlier = sorted([_pick(eps, a), _pick(eps, b)], key=lambda e: e["mjd"], reverse=True)
+            if later is earlier:
+                raise ValueError("A difference needs two different visits.")
+            d = difference(later, earlier)
+            fig, _ = _image_figure(d["image"], d["wcs"], _with_few(
+                f"{text}  {label}  later minus earlier: {d['label']}\n"
+                "red = brighter later, blue = brighter earlier", later, earlier),
+                _marker(target, d), diverging=True)
         return fig
     if kind in ("banddiff", "rgb"):
         dets = [long, short] if kind == "banddiff" else [x.strip() for x in str(rgb).split(",")]
@@ -360,7 +365,8 @@ def picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=
         if kind == "banddiff":
             d = band_difference(chosen[0], chosen[1])
             fig, _ = _image_figure(d["image"], d["wcs"], _with_few(f"{text}  {d['label']}\n"
-                                   "red = brighter at long wavelengths than normal stars", *chosen),
+                                   f"red = brighter in {dets[0]}, blue = brighter in scaled {dets[1]} "
+                                   "(normal stars cancel)", *chosen),
                                    _marker(target, d), diverging=True)
         else:
             img = rgb_image(*[c["image"] for c in chosen])

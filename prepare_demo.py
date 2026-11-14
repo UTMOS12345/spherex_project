@@ -68,9 +68,9 @@ def save_flipbook_and_diff(name, target, epochs, folder):
     norm = shared_norm([first["image"], last["image"]])
     fig = plt.figure(figsize=(14, 4.8))
     for i, (img, title, kw) in enumerate([
-            (first["image"], f"B: {first['date']}", dict(cmap="gray", norm=norm)),
-            (last["image"], f"A: {last['date']}", dict(cmap="gray", norm=norm)),
-            (d["image"], "A - B  (red = brighter in A, blue = brighter in B)",
+            (first["image"], f"earlier: {first['date']}", dict(cmap="gray", norm=norm)),
+            (last["image"], f"later: {last['date']}", dict(cmap="gray", norm=norm)),
+            (d["image"], "later minus earlier  (red = brighter later, blue = brighter earlier)",
              dict(cmap="RdBu_r", vmin=-lim, vmax=lim))]):
         ax = fig.add_subplot(1, 3, i + 1, projection=d["wcs"])
         ax.imshow(img, origin="lower", **kw)
