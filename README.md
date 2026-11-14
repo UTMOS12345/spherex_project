@@ -45,6 +45,24 @@ calls (see `API.md`). `app_example.py` is the Streamlit web app.
 - **8. Public tools.** Astropy (coordinates, WCS, time, FITS, statistics), astroquery (IRSA,
   Gaia, SIMBAD, SkyBoT), reproject and photutils. Aladin (CDS) is not used.
 
+## Cache size
+
+Downloaded cutouts live in `cache/cutouts` (controlled by `SPHEREX_CACHE`). A bounded LRU
+policy can cap that directory via environment variables (read at call time; unset/0 = unlimited,
+default behavior unchanged):
+
+- `SPHEREX_CACHE_MAX_GB` (float): total size cap over `cache/cutouts/*.fits` only. Other cache
+  dirs (`frames/`, `gaia/`, `wise/`) are never evicted.
+- `SPHEREX_CACHE_POLICY` (`evict` default | `stop`): `evict` deletes the oldest cutouts (by mtime)
+  after new downloads to stay under the cap; `stop` never deletes and raises `OSError` on a cache
+  miss when full (cache hits still work).
+- `SPHEREX_CACHE_TTL_DAYS` (float): delete cutouts older than this many days during a sweep
+  (renew on demand; re-downloaded on the next miss).
+- `SPHEREX_CACHE_SWEEP_EVERY` (int, default 1): enforce after every N new downloads.
+
+Recommended server setting: `SPHEREX_CACHE_MAX_GB=25`, `SPHEREX_CACHE_POLICY=evict`,
+`SPHEREX_CACHE_TTL_DAYS=0`.
+
 ## Install and run
 
 Tested with Python 3.14. Run the commands from this folder.
