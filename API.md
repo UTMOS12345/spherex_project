@@ -112,7 +112,7 @@ are not affected.
 | Visits | `api.visits(text, refresh=False, detector=None, fov=4.0, clip=True)` | table: `visit`, `first_date`, `last_date`, `n_frames`, `D1`..`D6` (frames per detector), `releases`; with `detector`, also `n_min` and `clipped_fraction` of that detector's stacks (this stacks the visits if needed) |
 | Pictures index | `api.epochs(text, detector=None, fov=4.0, wl=None, days=60, clip=True, pictures=None)` | table, one row per picture the other functions build for these settings, in their order: `index`, `visit` (the `api.visits` number most of its frames belong to), `date` (as in the titles; with time for `days=0`), `first_date`, `last_date` (of the frames used), `n_frames`, `n_min`, `clipped_fraction`, `few_frames`, `detectors_used`, `releases`; `meta`: `n_pictures`, `n_frames_total`, `n_few_frames` |
 | Video (GIF) | `api.flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, timeline=True, clip=True, pictures=None)` | GIF bytes |
-| Video (player) | `api.player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, width=700, clip=True, pictures=None, real_time=False, max_hold=6)` | HTML string: the same pictures with play/pause, step, a slider and a "real time gaps" checkbox (`streamlit.components.v1.html(html, height=...)`) |
+| Video (player) | `api.player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, width=700, clip=True, pictures=None, real_time=False, max_hold=6, show_real_time_toggle=True)` | HTML string: the same pictures with play/pause, step, a slider and a "real time gaps" checkbox (hidden with `show_real_time_toggle=False`) (`streamlit.components.v1.html(html, height=...)`) |
 | Pictures | `api.picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=None, long="D6", short="D2", rgb="D6,D3,D1", clip=True, days=60)` | figure |
 | Overlays | `api.overlay_figure(text, detector="D2", fov=4.0, visit=-1, gaia=True, wise=True, asteroids=False, min_pm=50, arrow_years=5, days=60)` | (figure, notes dict) |
 | Light curve | `api.light_curve_figure(text, band=1.6, tol=0.02)` | (figure, table) |
@@ -150,6 +150,7 @@ the `a` / `b` of kind "pair", `overlay_figure(..., visit=i)`, and frame i of `fl
 - `pictures` (`epochs`, `flipbook`, `player_html`): a list of row numbers of `api.epochs` for the
   same settings; only those pictures are used.
 - `real_time`, `max_hold` (`player_html`): hold each picture in proportion to the gap to the next.
+  `show_real_time_toggle=False` hides the player's own checkbox, for an app that offers its own.
 - `timeline` (`flipbook`): a time bar under the picture, and each picture stays on screen longer
   when the gap to the next is longer.
 - `clip` (`flipbook`, `player_html`, `picture`, `visits`): True = the stacking described above;

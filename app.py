@@ -98,9 +98,10 @@ def cached_player(text, detector, fov, mode, wl, fps, live, clip, days, pictures
     """The interactive player as one HTML page. `live` is only part of the cache key: live mode
     may see other data. clip=False and each time step (days) are different sets of pictures;
     pictures is None (all) or a tuple of rows of api.epochs. real_time: hold each picture in
-    proportion to the gap to the next one (the player's own checkbox starts in this state)."""
+    proportion to the gap to the next one; the app's checkbox sets it, so the player's own
+    checkbox is hidden."""
     return call(api.player_html, text, detector, fov, mode, fps, wl, days, width=600, clip=clip,
-                pictures=pictures, real_time=real_time)
+                pictures=pictures, real_time=real_time, show_real_time_toggle=False)
 
 
 @st.cache_data(show_spinner=False, max_entries=8)
@@ -290,8 +291,8 @@ def video_panel():
 
     with st.spinner("building the player..."):
         html = cached_player(*key, real_time)
-    # 830 px leaves room for a square picture plus the two control bars, so nothing needs scrolling
-    embed_html(html, height=830)
+    # 800 px leaves room for a square picture plus the control bar, so nothing needs scrolling
+    embed_html(html, height=800)
     counts = picture_counts(text, detector, fov, wl, clip, days, pictures)
     if counts:
         line = (f"{plural(counts['n_pictures'], 'picture')} from "

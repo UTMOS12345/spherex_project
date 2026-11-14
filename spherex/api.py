@@ -326,12 +326,13 @@ def _video_frames(text, detector, fov, mode, wl, days, clip=True, pictures=None)
 
 
 def player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, width=700, clip=True,
-                pictures=None, real_time=False, max_hold=6):
+                pictures=None, real_time=False, max_hold=6, show_real_time_toggle=True):
     """The video as a small web page with play/pause, step and a slider -> HTML string
     (streamlit.components.v1.html(html, height=...)). Same pictures as flipbook(), including pictures=.
     real_time=True: each picture stays on screen in proportion to the time gap to the next one,
     between 1 and max_hold times the base interval 1/fps (the GIF's rule); the last one stays
-    max_hold times. The player has a "real time gaps" checkbox to switch this while it plays."""
+    max_hold times. The player has a "real time gaps" checkbox to switch this while it plays;
+    show_real_time_toggle=False hides it (for an app that has its own checkbox for real_time)."""
     import base64
     import html as _html
     import io
@@ -364,7 +365,7 @@ label {{ white-space:nowrap; cursor:pointer; }}
 <img id="f" alt="SPHEREx video frame">
 <div class="bar"><button id="prev">&#9664;</button><button id="play">pause</button><button id="next">&#9654;</button>
 <input id="s" type="range" min="0" max="{len(pngs) - 1}" value="0"><span id="d"></span></div>
-<div class="bar"{'' if len(pngs) > 1 else ' hidden'}><label><input id="rt" type="checkbox"{' checked' if real_time else ''}> real time gaps</label></div>
+<div class="bar"{'' if len(pngs) > 1 and show_real_time_toggle else ' hidden'}><label><input id="rt" type="checkbox"{' checked' if real_time else ''}> real time gaps</label></div>
 <script>
 const F = {json.dumps(pngs)}, L = {json.dumps(labels)}, H = {json.dumps(holds)}, BASE = {int(1000 / max(fps, 1))};
 let i = 0, timer = null;
