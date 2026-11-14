@@ -47,14 +47,20 @@ def known_target(name):
     return key if key in KNOWN else None
 
 
+GAIA_EPOCH = Time(2016.0, format="jyear")    # Gaia DR3 positions, often what users copy
+
+
 def known_near(coord):
-    """KNOWN key of the target within MATCH_RADIUS of `coord`, either at its catalogue
-    position or at where it is today (fast movers are far from their catalogue position), or None."""
+    """KNOWN key of the target within MATCH_RADIUS of `coord`, at its catalogue position, at
+    its Gaia DR3 epoch (2016.0) position, or at where it is today (fast movers are far from
+    their catalogue position), or None."""
     now = Time.now()
     for key, row in KNOWN.items():
         known = make_coord(*row)
-        if (coord.separation(SkyCoord(row[0] * u.deg, row[1] * u.deg)) < MATCH_RADIUS or
-                coord.separation(at_time(known, now)) < MATCH_RADIUS):
+        places = [SkyCoord(row[0] * u.deg, row[1] * u.deg)]
+        if has_pm(known):
+            places += [at_time(known, GAIA_EPOCH), at_time(known, now)]
+        if any(coord.separation(p) < MATCH_RADIUS for p in places):
             return key
     return None
 
