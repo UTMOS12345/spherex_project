@@ -464,6 +464,7 @@ def overlay_figure(text, detector="D2", fov=4.0, visit=-1, gaia=True, wise=True,
 # ------------------------------------------------------------------ 5. measurements
 APERTURE_ARCSEC = 2 * 6.15          # measure_frame's r_px=2 on 6.15" SPHEREx pixels
 SELF_MATCH_ARCSEC = 2.0             # a Gaia source this close to the target is the target itself
+CLOSE_NEIGHBOUR_ARCSEC = 8.0        # a neighbour this close dominates where the target is faint
 
 
 def _neighbour_warning(target, mjd):
@@ -491,9 +492,16 @@ def _neighbour_warning(target, mjd):
         return None
     mags = g[near]
     parts = [f"G={g:.1f} at {d:.1f}″" for d, g in sorted(zip(sep[near], mags))]
-    return (f"{int(near.sum())} Gaia star(s) inside the {APERTURE_ARCSEC:.0f}″ measuring circle "
+    text = (f"{int(near.sum())} Gaia star(s) inside the {APERTURE_ARCSEC:.0f}″ measuring circle "
             f"({', '.join(parts)}): part of the light measured comes from them, mostly at short "
             "wavelengths. Treat these brightnesses as upper limits.")
+    close = near & (sep < CLOSE_NEIGHBOUR_ARCSEC)
+    if close.any():
+        i = np.flatnonzero(close)[np.argmin(sep[close])]
+        text += (f" The neighbour at {sep[i]:.1f}″ (G={g[i]:.1f}) is so close that, at wavelengths where "
+                 "the target is faint, the measured light is "
+                 "mostly this neighbour, not the target.")
+    return text
 
 
 SATURATED_NOTE = ("The target is saturated (too bright for SPHEREx) here: triangles are lower limits from the unsaturated wings of the star; its true brightness is higher.")
