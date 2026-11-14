@@ -1,12 +1,12 @@
 Barnard's Star: 363 frames, 3 visits
   OK    download cutouts  (3 s)
-  OK    stack visits (D2)  (4 s)
+  OK    stack visits (D2)  (5 s)
   OK    flipbook.gif + difference.png  (2 s)
   OK    overlay.png (Gaia + WISE)  (3 s)
         light curve: 5 points, 0 usable  [The target is saturated (too bright for SPHEREx) here: triangles are l]
   OK    lightcurve (1.3 um)  (4 s)
         spectrum: 119 points, 119 of 102 channels  [The target is saturated (too bright for SPHEREx) here: triangles are l]
-  OK    spectrum (latest visit)  (16 s)
+  OK    spectrum (latest visit)  (15 s)
 WISE 0855: 258 frames, 3 visits
   OK    download cutouts  (1 s)
   OK    stack visits (D6)  (2 s)
@@ -20,7 +20,7 @@ Epsilon Indi B: 467 frames, 4 visits
   OK    download cutouts  (2 s)
   OK    stack visits (D5)  (4 s)
   OK    flipbook.gif + difference.png  (1 s)
-  OK    overlay.png (Gaia + WISE)  (5 s)
+  OK    overlay.png (Gaia + WISE)  (4 s)
         light curve: 3 points, 3 usable  [The usable points were measured at slightly different wavelengths (4.1]
   OK    lightcurve (4.2 um)  (6 s)
         spectrum: 120 points, 62 of 102 channels
