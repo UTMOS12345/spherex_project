@@ -100,8 +100,12 @@ def cached_player(text, detector, fov, mode, wl, fps, live, clip, days, pictures
     pictures is None (all) or a tuple of rows of api.epochs. real_time: hold each picture in
     proportion to the gap to the next one; the app's checkbox sets it, so the player's own
     checkbox is hidden."""
-    return call(api.player_html, text, detector, fov, mode, fps, wl, days, width=600, clip=clip,
+    html = call(api.player_html, text, detector, fov, mode, fps, wl, days, width=600, clip=clip,
                 pictures=pictures, real_time=real_time, show_real_time_toggle=False)
+    # show_real_time_toggle=False marks the player's own checkbox row with `hidden`, but the
+    # player's `.bar {display:flex}` rule overrides that attribute, so it would stay visible
+    # next to the app's checkbox. Force the row off (library CSS, not ours to change).
+    return html.replace("<style>", "<style>.bar[hidden]{display:none}", 1)
 
 
 @st.cache_data(show_spinner=False, max_entries=8)
@@ -219,6 +223,7 @@ def first_setup():
     st.session_state["mode"] = q.get("mode") if q.get("mode") in MODES else "normal"
     st.session_state["raw"] = q.get("clip") == "0"      # ?clip=0 -> plain average of the frames
     st.session_state["days"] = url_days()               # time step; not a widget key, so it survives view changes
+    st.session_state["real_time"] = q.get("rt") == "1"  # player holds each picture for its time gap
     st.session_state["_defaults_for"] = st.session_state["target"]
 
 
@@ -341,7 +346,7 @@ def overlays_panel():
     with st.spinner("querying catalogues..."):
         fig, notes = call(api.overlay_figure, st.session_state["target"], target_detector(),
                           float(st.session_state["fov"]), gaia=gaia, wise=wise,
-                          asteroids=asteroids and LIVE)
+                          asteroids=asteroids and LIVE, days=st.session_state["days"])
     show(fig)
     if notes.get("few_frames"):         # the title says it too, but small and easy to miss
         st.warning(f"{api.FEW_FRAMES_NOTE}: this picture rests on fewer than 4 frames under "
@@ -494,4 +499,5 @@ st.query_params.update(
     mode=st.session_state.get("mode", "normal"),
     clip="0" if st.session_state["raw"] else "1",
     days=str(st.session_state.get("days", 60)),
+    rt="1" if st.session_state.get("real_time") else "0",
 )
