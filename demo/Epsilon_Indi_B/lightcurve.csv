@@ -1,4 +1,4 @@
-mjd,date,wavelength_um,flux_mjy,err_mjy,flux_min_mjy,detector,n_bad,saturated,bad_flags,ok,release
-60833.5364,2025-06-07 12:52:27.900,4.211,40.55,0.37,nan,5,0,False,,True,DR1
-60950.0915,2025-10-02 02:11:46.734,4.213,39.79,0.36,nan,5,0,False,,True,DR1
-61312.8320,2026-09-29 19:58:06.052,4.195,44.69,0.39,nan,5,0,False,,True,QR3
+mjd,date,wavelength_um,flux_mjy,err_mjy,flux_min_mjy,detector,n_bad,saturated,bad_flags,ok,release,visit
+60833.5364,2025-06-07 12:52:27.900,4.211,40.55,0.37,nan,5,0,False,,True,DR1,0
+60950.0915,2025-10-02 02:11:46.734,4.213,39.79,0.36,nan,5,0,False,,True,DR1,1
+61312.8320,2026-09-29 19:58:06.052,4.195,44.69,0.39,nan,5,0,False,,True,QR3,3

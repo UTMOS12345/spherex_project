@@ -1,5 +1,5 @@
-mjd,date,wavelength_um,flux_mjy,err_mjy,flux_min_mjy,detector,n_bad,saturated,bad_flags,ok,release
-60989.3007,2025-11-10 07:13:01.073,4.481,0.94,0.15,nan,6,1,False,"TRANSIENT,SUR_ERROR,NONFUNC",False,DR1
-60989.3022,2025-11-10 07:15:10.004,4.514,0.33,0.15,nan,6,0,False,,True,DR1
-61151.2016,2026-04-21 04:50:16.850,4.486,0.69,0.13,nan,6,0,False,,True,DR1
-61152.7580,2026-04-22 18:11:28.589,4.519,0.57,0.14,nan,6,0,False,,True,DR1
+mjd,date,wavelength_um,flux_mjy,err_mjy,flux_min_mjy,detector,n_bad,saturated,bad_flags,ok,release,visit
+60989.3007,2025-11-10 07:13:01.073,4.481,0.94,0.15,nan,6,1,False,"TRANSIENT,SUR_ERROR,NONFUNC",False,DR1,1
+60989.3022,2025-11-10 07:15:10.004,4.514,0.33,0.15,nan,6,0,False,,True,DR1,1
+61151.2016,2026-04-21 04:50:16.850,4.486,0.69,0.13,nan,6,0,False,,True,DR1,2
+61152.7580,2026-04-22 18:11:28.589,4.519,0.57,0.14,nan,6,0,False,,True,DR1,2

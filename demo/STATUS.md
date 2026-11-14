@@ -11,7 +11,7 @@ Made by `make_gallery.py`. READY = made from every image; PARTIAL = made from th
 | Gaia + WISE overlay (`overlay.png`) | READY |  |
 | Light curve at 1.3 ± 0.02 µm (`lightcurve.png`) | LOWER LIMITS | The target is saturated (too bright for SPHEREx) here: triangles are lower limits from the unsaturated wings of the star; its true brightness is higher. These measurements come from different data releases (DR1, QR3). Their calibration can differ by several percent, so a step between releases is not necessarily a real change. |
 | Spectrum, latest visit (`spectrum.png`) | LOWER LIMITS | The target is saturated (too bright for SPHEREx) here: triangles are lower limits from the unsaturated wings of the star; its true brightness is higher. |
-| Spectrum of every visit (`spectra_visits.png`) | LOWER LIMITS | The target is saturated (too bright for SPHEREx) here: triangles are lower limits from the unsaturated wings of the star; its true brightness is higher. |
+| Spectrum of every visit (`spectra_visits.png`) | LOWER LIMITS | The target is saturated (too bright for SPHEREx) here: triangles are lower limits from the unsaturated wings of the star; its true brightness is higher. These measurements come from different data releases (DR1, QR3). Their calibration can differ by several percent, so a step between releases is not necessarily a real change. |
 | All visits added, D2 (`deep.png`) | READY |  |
 | Changes only: each visit minus the others, D2 (`minus_mean.gif`) | READY | The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
 | Video, D5+D6 combined (3.8-5.0 µm) (`flipbook_D5+D6.gif`) | READY | The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
@@ -26,9 +26,9 @@ Made by `make_gallery.py`. READY = made from every image; PARTIAL = made from th
 | Video, D6 (`flipbook.gif`) | READY |  |
 | Last minus first visit, D6 (`difference.png`) | READY |  |
 | Gaia + WISE overlay (`overlay.png`) | READY |  |
-| Light curve at 4.5 ± 0.02 µm (`lightcurve.png`) | READY | 1 Gaia star(s) inside the 12″ measuring circle (G=16.3 at 6.0″): part of the light measured comes from them, mostly at short wavelengths. Treat these brightnesses as upper limits. |
-| Spectrum, latest visit (`spectrum.png`) | READY | 1 Gaia star(s) inside the 12″ measuring circle (G=16.3 at 4.4″): part of the light measured comes from them, mostly at short wavelengths. Treat these brightnesses as upper limits. |
-| Spectrum of every visit (`spectra_visits.png`) | READY | 1 Gaia star(s) inside the 12″ measuring circle (G=16.3 at 7.5″): part of the light measured comes from them, mostly at short wavelengths. Treat these brightnesses as upper limits. |
+| Light curve at 4.5 ± 0.02 µm (`lightcurve.png`) | READY | The usable points were measured at slightly different wavelengths (4.486 to 4.519 µm). On a steep spectrum that alone can change the flux by several percent, so differences of that size are not necessarily a change of the source. 1 Gaia star(s) inside the 12″ measuring circle (G=16.3 at 6.0″): part of the light measured comes from them, mostly at short wavelengths. Treat these brightnesses as upper limits. The neighbour at 6.0″ (G=16.3) is so close that, at wavelengths where the target is faint, the measured light is mostly this neighbour, not the target. |
+| Spectrum, latest visit (`spectrum.png`) | READY | 1 Gaia star(s) inside the 12″ measuring circle (G=16.3 at 4.4″): part of the light measured comes from them, mostly at short wavelengths. Treat these brightnesses as upper limits. The neighbour at 4.4″ (G=16.3) is so close that, at wavelengths where the target is faint, the measured light is mostly this neighbour, not the target. |
+| Spectrum of every visit (`spectra_visits.png`) | READY | 1 Gaia star(s) inside the 12″ measuring circle (G=16.3 at 7.5″): part of the light measured comes from them, mostly at short wavelengths. Treat these brightnesses as upper limits. The neighbour at 7.5″ (G=16.3) is so close that, at wavelengths where the target is faint, the measured light is mostly this neighbour, not the target. |
 | All visits added, D6 (`deep.png`) | READY |  |
 | Changes only: each visit minus the others, D6 (`minus_mean.gif`) | READY |  |
 | Video, D5+D6 combined (3.8-5.0 µm) (`flipbook_D5+D6.gif`) | READY |  |
@@ -43,9 +43,9 @@ Made by `make_gallery.py`. READY = made from every image; PARTIAL = made from th
 | Video, D5 (`flipbook.gif`) | READY |  |
 | Last minus first visit, D5 (`difference.png`) | READY |  |
 | Gaia + WISE overlay (`overlay.png`) | READY |  |
-| Light curve at 4.2 ± 0.02 µm (`lightcurve.png`) | READY | These measurements come from different data releases (DR1, QR3). Their calibration can differ by several percent, so a step between releases is not necessarily a real change. |
+| Light curve at 4.2 ± 0.02 µm (`lightcurve.png`) | READY | The usable points were measured at slightly different wavelengths (4.195 to 4.213 µm). On a steep spectrum that alone can change the flux by several percent, so differences of that size are not necessarily a change of the source. These measurements come from different data releases (DR1, QR3). Their calibration can differ by several percent, so a step between releases is not necessarily a real change. |
 | Spectrum, latest visit (`spectrum.png`) | READY |  |
-| Spectrum of every visit (`spectra_visits.png`) | PARTIAL | Made from the 194 of 467 images in cache/; the other 273 are at IRSA (python make_gallery.py --download --only "Epsilon Indi B"). |
+| Spectrum of every visit (`spectra_visits.png`) | PARTIAL | Made from the 194 of 467 images in cache/; the other 273 are at IRSA (python make_gallery.py --download --only "Epsilon Indi B"). These measurements come from different data releases (DR1, QR3). Their calibration can differ by several percent, so a step between releases is not necessarily a real change. |
 | All visits added, D5 (`deep.png`) | READY |  |
 | Changes only: each visit minus the others, D5 (`minus_mean.gif`) | READY |  |
 | Video, D5+D6 combined (3.8-5.0 µm) (`flipbook_D5+D6.gif`) | PARTIAL | Made from the 126 of 181 images in cache/; the other 55 are at IRSA (python make_gallery.py --download --only "Epsilon Indi B"). |
@@ -60,9 +60,9 @@ Made by `make_gallery.py`. READY = made from every image; PARTIAL = made from th
 | Video, D1 (`flipbook.gif`) | READY |  |
 | Last minus first visit, D1 (`difference.png`) | READY |  |
 | Gaia + WISE overlay (`overlay.png`) | READY |  |
-| Light curve at 0.9 ± 0.02 µm (`lightcurve.png`) | READY | These measurements come from different data releases (DR1, QR3). Their calibration can differ by several percent, so a step between releases is not necessarily a real change. |
+| Light curve at 0.9 ± 0.02 µm (`lightcurve.png`) | READY | The usable points were measured at slightly different wavelengths (0.887 to 0.900 µm). On a steep spectrum that alone can change the flux by several percent, so differences of that size are not necessarily a change of the source. These measurements come from different data releases (DR1, QR3). Their calibration can differ by several percent, so a step between releases is not necessarily a real change. |
 | Spectrum, latest visit (`spectrum.png`) | READY |  |
-| Spectrum of every visit (`spectra_visits.png`) | PARTIAL | Made from the 148 of 336 images in cache/; the other 188 are at IRSA (python make_gallery.py --download --only "RW Aur"). |
+| Spectrum of every visit (`spectra_visits.png`) | PARTIAL | Made from the 148 of 336 images in cache/; the other 188 are at IRSA (python make_gallery.py --download --only "RW Aur"). These measurements come from different data releases (DR1, QR3). Their calibration can differ by several percent, so a step between releases is not necessarily a real change. |
 | All visits added, D1 (`deep.png`) | READY |  |
 | Changes only: each visit minus the others, D1 (`minus_mean.gif`) | READY |  |
 | Video, D5+D6 combined (3.8-5.0 µm) (`flipbook_D5+D6.gif`) | PARTIAL | Made from the 37 of 112 images in cache/; the other 75 are at IRSA (python make_gallery.py --download --only "RW Aur"). |
@@ -79,7 +79,7 @@ Made by `make_gallery.py`. READY = made from every image; PARTIAL = made from th
 | Gaia + WISE overlay (`overlay.png`) | READY |  |
 | Light curve at 2.2 ± 0.02 µm (`lightcurve.png`) | LOWER LIMITS | The target is saturated (too bright for SPHEREx) here: triangles are lower limits from the unsaturated wings of the star; its true brightness is higher. |
 | Spectrum, latest visit (`spectrum.png`) | LOWER LIMITS | The target is saturated (too bright for SPHEREx) here: triangles are lower limits from the unsaturated wings of the star; its true brightness is higher. |
-| Spectrum of every visit (`spectra_visits.png`) | LOWER LIMITS | The target is saturated (too bright for SPHEREx) here: triangles are lower limits from the unsaturated wings of the star; its true brightness is higher. |
+| Spectrum of every visit (`spectra_visits.png`) | LOWER LIMITS | The target is saturated (too bright for SPHEREx) here: triangles are lower limits from the unsaturated wings of the star; its true brightness is higher. These measurements come from different data releases (DR1, QR3). Their calibration can differ by several percent, so a step between releases is not necessarily a real change. |
 | All visits added, D3 (`deep.png`) | READY |  |
 | Changes only: each visit minus the others, D3 (`minus_mean.gif`) | READY | The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
 | Video, D5+D6 combined (3.8-5.0 µm) (`flipbook_D5+D6.gif`) | PARTIAL | Made from the 31 of 184 images in cache/; the other 153 are at IRSA (python make_gallery.py --download --only "R Draconis").  The target is saturated: its core is filled in from the pixels around it, so its colour or brightness here is not a measurement. |
