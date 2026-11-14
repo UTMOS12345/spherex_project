@@ -116,7 +116,8 @@ def light_curve(frames, target, band_um, tol_um=0.02, r_px=2.0, size_deg=0.1):
     """Brightness of the target over time at ONE wavelength.
     frames table + target SkyCoord + wavelength (micron) -> Table sorted by time:
     mjd, date, wavelength_um, flux_mjy, err_mjy, flux_min_mjy, detector, n_bad, saturated, bad_flags, ok,
-    release ('DR1', 'QR3', ...: the data release the frame comes from).
+    release ('DR1', 'QR3', ...: the data release the frame comes from), visit (the frames' 'epoch'
+    column if the table has one, from epochs.assign_epochs; else -1).
     Only frames where the target lands within tol_um of band_um are measured.
     flux_min_mjy: for saturated measurements only, a lower limit on the brightness."""
     lo = np.asarray(frames["em_min"], float) * 1e6 - tol_um
@@ -131,9 +132,10 @@ def light_curve(frames, target, band_um, tol_um=0.02, r_px=2.0, size_deg=0.1):
             continue
         if np.isfinite(m["wavelength_um"]) and abs(m["wavelength_um"] - band_um) <= tol_um:
             m["release"] = release_name(row["collection"]) if "collection" in frames.colnames else ""
+            m["visit"] = int(row["epoch"]) if "epoch" in frames.colnames else -1
             rows.append(m)
     names = ["mjd", "date", "wavelength_um", "flux_mjy", "err_mjy", "flux_min_mjy", "detector", "n_bad", "saturated",
-             "bad_flags", "ok", "release"]
+             "bad_flags", "ok", "release", "visit"]
     if not rows:
         return Table(names=names)
     t = Table(rows)

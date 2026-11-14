@@ -116,7 +116,8 @@ def wavelength_spread(lc):
 
 def plot_light_curve_simple(lc, title, out_png=None, gap_days=30, span_mjd=None):
     """The easy-to-read light curve: ONE axis, x = date, y = brightness.
-    Big dot = the average of one visit (bar = spread of that visit's points),
+    Big dot = the average of one SPHEREx visit (bar = spread of that visit's points; visits come from
+    the table's "visit" column, or, without one, a gap of more than gap_days starts a new visit),
     small dots = the single usable measurements, a line joins the visits.
     A visit with no usable point shows its lower limits (saturated star: grey triangles, the true
     brightness is higher) or, if there are none, is marked at the bottom with the reason.
@@ -131,7 +132,10 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30, span_mjd=None)
         lc["release"] = ""
     releases = sorted(set(str(r) for r in lc["release"]))
     marker = dict(zip(releases, RELEASE_MARKERS))
-    visit = np.concatenate([[0], np.cumsum(np.diff(lc["mjd"]) > gap_days)])
+    if "visit" in lc.colnames and len(lc) and (np.asarray(lc["visit"]) >= 0).all():
+        visit = np.asarray(lc["visit"])          # the SPHEREx visit each frame belongs to
+    else:                                        # no visit column: a gap of more than gap_days starts one
+        visit = np.concatenate([[0], np.cumsum(np.diff(lc["mjd"]) > gap_days)])
     fig, ax = plt.subplots(figsize=(8, 4.6))
     ax.grid(axis="y", lw=1); ax.set_axisbelow(True)
     ax.spines["left"].set_visible(False); ax.tick_params(length=0)
