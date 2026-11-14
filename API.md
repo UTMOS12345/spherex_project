@@ -13,6 +13,9 @@ is `app_example.py` (`streamlit run app_example.py`).
   it. It explains saturation, neighbouring stars in the measuring circle, mixed data releases,
   wavelength differences between light-curve points and wide wavelength windows. The same text is
   drawn small at the bottom of the figure; that is not enough on its own.
+- **Build visit pickers from `api.epochs(...)`, not from `api.visits(...)`**: called with the same
+  settings as the picture or video, its row i is exactly `visit=i` of `picture` and frame i of the
+  video, while `api.visits` also lists visits that have no picture for that detector.
 - **Use `api.defaults(text)`** for the per-target detector, light-curve wavelength and tolerance.
   For the five test targets these are the settings already in `cache/`, and the function also
   recognises aliases and coordinates of those targets.
@@ -64,6 +67,7 @@ are not affected.
 |---|---|---|
 | Search box | `api.resolve(text)` | dict: `name`, `ra`, `dec` (degrees, catalogue position), `ra_hms`, `dec_dms`, `has_motion`, `pm_ra`, `pm_dec` (mas/yr), `known` (True for the five test targets, by name, alias or coordinates) |
 | Visits | `api.visits(text, refresh=False, detector=None, fov=4.0, clip=True)` | table: `visit`, `first_date`, `last_date`, `n_frames`, `D1`..`D6` (frames per detector), `releases`; with `detector`, also `n_min` and `clipped_fraction` of that detector's stacks (this stacks the visits if needed) |
+| Pictures index | `api.epochs(text, detector=None, fov=4.0, wl=None, days=60, clip=True)` | table, one row per picture the other functions build for these settings, in their order: `index`, `visit` (the `api.visits` number most of its frames belong to), `date` (as in the titles), `first_date`, `last_date` (of the frames used), `n_frames`, `n_min`, `clipped_fraction`, `few_frames`, `detectors_used`, `releases` |
 | Video (GIF) | `api.flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, timeline=True, clip=True)` | GIF bytes |
 | Video (player) | `api.player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, width=700, clip=True)` | HTML string: the same pictures with play/pause, step and a slider (`streamlit.components.v1.html(html, height=...)`) |
 | Pictures | `api.picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=None, long="D6", short="D2", rgb="D6,D3,D1", clip=True)` | figure |
@@ -74,6 +78,14 @@ are not affected.
 
 Show a figure with `st.pyplot(fig)` and then `plt.close(fig)`; a table with
 `st.dataframe(table.to_pandas())`; GIF bytes with `st.image(gif)`.
+
+`api.epochs` uses the same stacks and memory cache as the pictures, so it never disagrees with
+them and costs nothing once a video has been built (about 15 ms). Row i is `picture(..., visit=i)`,
+the `a` / `b` of kind "pair", and frame i of `flipbook` and `player_html` in every mode, when they
+get the same `detector`, `fov`, `wl` and `clip`. With `days` other than 60 (weekly pictures) the rows
+match the videos only: `picture` always uses one picture per visit. `detector=None` means D2 unless
+`wl` is given. Example: for R Draconis with D3 the rows are visits 0, 3 and 4 of `api.visits`
+(D3 did not observe it in visits 1, 2 and 5).
 
 ## Inputs
 

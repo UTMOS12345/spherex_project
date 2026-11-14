@@ -215,6 +215,24 @@ def visits(text, refresh=False, detector=None, fov=4.0, clip=True):
     return Table(rows)
 
 
+def epochs(text, detector=None, fov=4.0, wl=None, days=60, clip=True):
+    """The pictures the other functions build for exactly these settings -> table, one row per
+    picture, in their order: row i is picture(..., visit=i), the a / b of kind "pair", and frame i
+    of flipbook and player_html (same arguments). Build visit pickers from this, not from visits().
+    Columns: index, visit (the visits() number most of its frames belong to), date (as in the
+    picture titles), first_date, last_date (of the frames used), n_frames, n_min, clipped_fraction,
+    few_frames (fewer than 4 frames under the centre: "few frames: unreliable"), detectors_used,
+    releases. Same stacks and memory cache as the pictures: free once a video has been built.
+    detector=None means D2, unless wl is given (then the detectors covering wl)."""
+    _, _, eps = _epochs(text, detector, fov, wl, days, clip)
+    iso = lambda m: Time(m, format="mjd").iso[:10]
+    return Table(rows=[(i, int(e["visit"]), e["date"], iso(e["first_mjd"]), iso(e["last_mjd"]), int(e["n_frames"]),
+                        int(e["n_min"]), round(float(e["clipped_fraction"]), 5), bool(_few(e)),
+                        e["detectors_used"], e["releases"]) for i, e in enumerate(eps)],
+                 names=["index", "visit", "date", "first_date", "last_date", "n_frames", "n_min",
+                        "clipped_fraction", "few_frames", "detectors_used", "releases"])
+
+
 # ------------------------------------------------------------------ 2. the video
 def flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, timeline=True, clip=True):
     """The little video -> GIF as bytes (st.image(gif_bytes)).
