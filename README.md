@@ -101,6 +101,16 @@ needs when the cache has none of them (it switches demo mode off for that step).
 `prepare_demo.py --refresh` searches IRSA for new data and `--all-frames` downloads every frame;
 both need the network and take long.
 
+## Deployment
+
+For a public demo on an Ubuntu droplet (systemd + nginx + an auto-deploy cron job following
+`production`), see `deploy/README.md`. The short version:
+
+```
+bash deploy/bootstrap.sh          # as root on the server
+rsync -av cache/ root@SERVER:/srv/spherex-cache/
+```
+
 ## What works (verified on the cached data of all five targets)
 
 - Target lookup: the five test targets by name and common aliases; decimal degrees and
@@ -205,3 +215,4 @@ This tool uses:
   products to `out/`.
 - `cache/` frame lists, cutouts, Gaia and CatWISE cones. Cutouts are not tracked; ship or rebuild
   them (`prepare_demo.py`).
+- `deploy/` systemd unit, nginx site, bootstrap and auto-deploy scripts (`deploy/README.md`).

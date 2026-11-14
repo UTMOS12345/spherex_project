@@ -1,0 +1,28 @@
+[Unit]
+Description=SPHEREx Flipbook (Streamlit)
+Documentation=https://github.com/UTMOS12345/spherex_project
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=spherex
+Group=spherex
+WorkingDirectory=/srv/spherex
+EnvironmentFile=-/etc/spherex.env
+Environment=HOME=/srv/spherex
+Environment=MPLBACKEND=Agg
+Environment=STREAMLIT_SERVER_FILE_WATCHER_TYPE=none
+ExecStart=/srv/spherex/.venv/bin/streamlit run app.py --server.address 127.0.0.1 --server.port 8501 --server.headless true --browser.gatherUsageStats false
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/srv/spherex /srv/spherex-cache /srv/spherex/demo /srv/spherex/out
+
+[Install]
+WantedBy=multi-user.target
