@@ -106,10 +106,16 @@ def _lower_limit(img, x, y):
     return max(best, 0.0) if np.isfinite(best) else np.nan
 
 
+def release_name(collection):
+    """IRSA collection -> short release name: 'spherex_dr1' -> 'DR1', 'spherex_qr3' -> 'QR3'."""
+    return str(collection).removeprefix("spherex_").upper()
+
+
 def light_curve(frames, target, band_um, tol_um=0.02, r_px=2.0, size_deg=0.1):
     """Brightness of the target over time at ONE wavelength.
     frames table + target SkyCoord + wavelength (micron) -> Table sorted by time:
-    mjd, date, wavelength_um, flux_mjy, err_mjy, flux_min_mjy, detector, n_bad, saturated, bad_flags, ok.
+    mjd, date, wavelength_um, flux_mjy, err_mjy, flux_min_mjy, detector, n_bad, saturated, bad_flags, ok,
+    release ('DR1', 'QR3', ...: the data release the frame comes from).
     Only frames where the target lands within tol_um of band_um are measured.
     flux_min_mjy: for saturated measurements only, a lower limit on the brightness."""
     lo = np.asarray(frames["em_min"], float) * 1e6 - tol_um
@@ -123,9 +129,10 @@ def light_curve(frames, target, band_um, tol_um=0.02, r_px=2.0, size_deg=0.1):
             print(f"  skipped {row['obs_id']} {row['detector']}: {e}")
             continue
         if np.isfinite(m["wavelength_um"]) and abs(m["wavelength_um"] - band_um) <= tol_um:
+            m["release"] = release_name(row["collection"]) if "collection" in frames.colnames else ""
             rows.append(m)
     names = ["mjd", "date", "wavelength_um", "flux_mjy", "err_mjy", "flux_min_mjy", "detector", "n_bad", "saturated",
-             "bad_flags", "ok"]
+             "bad_flags", "ok", "release"]
     if not rows:
         return Table(names=names)
     t = Table(rows)

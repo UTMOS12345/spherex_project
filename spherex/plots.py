@@ -98,20 +98,29 @@ def plot_light_curve(lc, title, out_png=None, gap_days=30):
     return fig
 
 
+RELEASE_MARKERS = ["o", "s", "D", "P", "X", "v"]     # one per data release; "^" is kept for lower limits
+
+
 def plot_light_curve_simple(lc, title, out_png=None, gap_days=30):
     """The easy-to-read light curve: ONE axis, x = date, y = brightness.
     Big dot = the average of one visit (bar = spread of that visit's points),
     small dots = the single usable measurements, a line joins the visits.
     A visit with no usable point shows its lower limits (saturated star: grey triangles, the true
-    brightness is higher) or, if there are none, is marked at the bottom with the reason."""
+    brightness is higher) or, if there are none, is marked at the bottom with the reason.
+    With a 'release' column, each data release gets its own marker (circle, square, ...), and a
+    light curve that mixes releases says so on the figure: their calibrations can differ."""
     B, INK, MUTED, GRID = THEME["blue"], THEME["ink"], THEME["muted"], THEME["grid"]
     lc = lc.copy()
     lc.sort("mjd")
+    if "release" not in lc.colnames:
+        lc["release"] = ""
+    releases = sorted(set(str(r) for r in lc["release"]))
+    marker = dict(zip(releases, RELEASE_MARKERS))
     visit = np.concatenate([[0], np.cumsum(np.diff(lc["mjd"]) > gap_days)])
     fig, ax = plt.subplots(figsize=(8, 4.6))
     ax.grid(axis="y", lw=1); ax.set_axisbelow(True)
     ax.spines["left"].set_visible(False); ax.tick_params(length=0)
-    dates, means, spreads, empty, limits = [], [], [], [], []
+    dates, means, spreads, empty, limits, kinds = [], [], [], [], [], []
     has_limits = "flux_min_mjy" in lc.colnames
     for v in sorted(set(visit)):
         rows = lc[visit == v]
@@ -128,14 +137,23 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30):
             reason = "saturated" if rows["saturated"].any() else "bad pixels"
             empty.append((d, reason))
             continue
-        ax.plot(Time(good["mjd"], format="mjd").datetime, good["flux_mjy"], "o", color=B, ms=4, alpha=0.45)
+        for r in sorted(set(str(x) for x in good["release"])):
+            g = good[good["release"] == r]
+            ax.plot(Time(g["mjd"], format="mjd").datetime, g["flux_mjy"], marker[r], color=B, ms=4, alpha=0.45,
+                    ls="none")
+        rel, counts = np.unique(np.asarray(good["release"], str), return_counts=True)
+        kinds.append(str(rel[np.argmax(counts)]))         # the visit's marker: its most common release
         dates.append(d)
         means.append(float(np.mean(good["flux_mjy"])))
         spreads.append(float(np.std(good["flux_mjy"])) if len(good) > 1 else float(good["err_mjy"][0]))
     if dates:
         ax.plot(dates, means, "-", color=B, lw=2, alpha=0.6)
-        ax.errorbar(dates, means, yerr=spreads, fmt="o", color=B, ms=11, mec=THEME["surface"], mew=2,
-                    elinewidth=2, capsize=0, label="visit average (bar = spread)")
+        for r in sorted(set(kinds)):
+            k = [i for i, x in enumerate(kinds) if x == r]
+            label = "visit average (bar = spread)" + (f", {r}" if len(releases) > 1 and r else "")
+            ax.errorbar([dates[i] for i in k], [means[i] for i in k], yerr=[spreads[i] for i in k],
+                        fmt=marker[r], color=B, ms=11 if marker[r] == "o" else 10, mec=THEME["surface"], mew=2,
+                        elinewidth=2, capsize=0, label=label)
         for d, m in zip(dates, means):
             ax.annotate(f"{m:,.0f}", (d, m), xytext=(10, 0), textcoords="offset points",
                         va="center", fontsize=9, color=INK)
@@ -154,6 +172,9 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30):
     ax.set_title(title, loc="left", fontsize=12, fontweight="bold")
     if dates or limits:
         ax.legend(loc="upper left", fontsize=9, labelcolor=MUTED)
+    if len([r for r in releases if r]) > 1:
+        ax.text(0.99, 0.98, f"mixed data releases ({', '.join(releases)}):\ncalibration may differ between them",
+                transform=ax.transAxes, ha="right", va="top", fontsize=8, color=THEME["flag"])
     fig.autofmt_xdate()
     fig.tight_layout()
     if out_png:

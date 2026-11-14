@@ -459,6 +459,15 @@ def _neighbour_warning(target, mjd):
 SATURATED_NOTE = ("The target is saturated (too bright for SPHEREx) here: triangles are lower limits from the unsaturated wings of the star; its true brightness is higher.")
 
 
+def _mixed_releases_note(table):
+    """Warning text when the measurements come from more than one data release, else None."""
+    rel = sorted(set(str(r) for r in table["release"] if str(r))) if "release" in table.colnames else []
+    if len(rel) < 2:
+        return None
+    return (f"These measurements come from different data releases ({', '.join(rel)}). Their calibration "
+            "can differ by several percent, so a step between releases is not necessarily a real change.")
+
+
 def _join(*notes):
     return " ".join(n for n in notes if n) or None
 
@@ -474,7 +483,9 @@ def _with_warning(fig, table, warning):
 
 def light_curve_figure(text, band=1.6, tol=0.02):
     """Brightness over time at one wavelength (micron) -> (figure, table).
-    Table columns: date, wavelength_um, flux_mjy, err_mjy, detector, n_bad, saturated, bad_flags, ok.
+    Table columns: mjd, date, wavelength_um, flux_mjy, err_mjy, flux_min_mjy, detector, n_bad, saturated,
+    bad_flags, ok, release. table.meta['warning'] (if present) explains saturation, neighbours in the
+    measuring circle, or a mix of data releases.
     Keep tol small: a wide window mixes wavelengths, which can look like variability."""
     target, frames = _load(text)
     lc = light_curve(frames, target, band, tol_um=tol)
@@ -482,7 +493,8 @@ def light_curve_figure(text, band=1.6, tol=0.02):
         raise ValueError(f"No image has '{text}' at {band} ± {tol} micron. Try a wider tolerance.")
     fig = plot_light_curve_simple(lc, f"{text}: brightness at {band:g} ± {tol:g} µm")
     warning = SATURATED_NOTE if (lc["saturated"] & ~lc["ok"]).any() else None
-    return _with_warning(fig, lc, _join(warning, _neighbour_warning(target, np.median(lc["mjd"]))))
+    return _with_warning(fig, lc, _join(warning, _mixed_releases_note(lc),
+                                        _neighbour_warning(target, np.median(lc["mjd"]))))
 
 
 def spectrum_figure(text, visit=-1, all_visits=False):
