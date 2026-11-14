@@ -73,7 +73,8 @@ def measure_frame(path, pos, r_px=2.0, sky_in=4.0, sky_out=7.0):
     if out["saturated"] or out["n_bad"] * 2 >= in_circle.sum():
         # saturated, or most of the circle masked: the sum is of zeros, not a brightness
         out["flux_mjy"] = out["err_mjy"] = np.nan
-        out["flux_min_mjy"] = _lower_limit(img, x, y) * to_mjy
+        if out["saturated"]:         # only a saturated star has a meaningful lower limit;
+            out["flux_min_mjy"] = _lower_limit(img, x, y) * to_mjy   # a masked circle is just not measured
     return out
 
 

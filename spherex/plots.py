@@ -148,7 +148,7 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30, span_mjd=None)
                 limits.append((Time(rows["mjd"][has], format="mjd").datetime, lim[has], d,
                                np.asarray(rows["wavelength_um"], float)[has]))
                 continue
-            reason = "saturated" if rows["saturated"].any() else "bad pixels"
+            reason = "saturated" if rows["saturated"].any() else "masked: not measured"
             empty.append((d, reason))
             continue
         for r in sorted(set(str(x) for x in good["release"])):
@@ -283,8 +283,11 @@ def plot_spectrum(spec, binned, title, out_png=None, log=False, molecules=True):
             ax.set_ylim(min(0, lo - pad), hi + 2 * pad)
     if len(bad):
         y0 = ax.get_ylim()[0]
-        ax.plot(bad["wavelength_um"], np.full(len(bad), y0), "x", color=THEME["flag"], ms=7, mew=1.5,
-                clip_on=False, label=f"flagged, not used ({len(bad)})")
+        masked = ~np.isfinite(np.asarray(bad["flux_mjy"], float))    # most of the circle masked: no value
+        for sel, mk, text in [(masked, "s", "masked: not measured"), (~masked, "x", "flagged, not used")]:
+            if sel.any():
+                ax.plot(bad["wavelength_um"][sel], np.full(int(sel.sum()), y0), mk, color=THEME["flag"], ms=6,
+                        mew=1.5, mfc="none", clip_on=False, label=f"{text} ({int(sel.sum())})")
     ax.set_xlim(0.72, 5.03)
     if molecules:
         _mark_molecules(ax)
