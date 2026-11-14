@@ -16,14 +16,21 @@ from .targets import at_time
 
 CLIP_SIGMA = 4.0          # stacking: a frame's pixel this far from the other frames is dropped
 CLIP_MIN_FRAMES = 4       # ... only where at least this many frames cover the pixel
+MAX_PICTURES = 150        # every-frame mode (days=0) refuses to build more pictures than this
 
 
 def assign_epochs(frames, gap_days=30, max_len_days=60):
     """Frames table -> same table (sorted by time) with a new integer column 'epoch' (0, 1, 2...).
     A new epoch starts after a gap longer than gap_days, or when an epoch would get longer
-    than max_len_days (targets near the ecliptic poles are observed almost continuously)."""
+    than max_len_days (targets near the ecliptic poles are observed almost continuously).
+    max_len_days=0 (days=0): one epoch per exposure, i.e. per distinct time. SPHEREx exposes
+    two detectors at once (D1+D4, D2+D5, D3+D6), so such a pair shares one epoch."""
     frames = frames.copy()
     frames.sort("mjd")
+    if max_len_days <= 0:
+        _, ids = np.unique(np.asarray(frames["mjd"], float), return_inverse=True)
+        frames["epoch"] = ids
+        return frames
     ids, epoch, start, last = [], 0, None, None
     for mjd in frames["mjd"]:
         if start is None:
@@ -166,6 +173,10 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
     unless size_deg is given; up to ~10' is served from the standard 0.25 deg downloads.
     Smaller gap_days / max_len_days cut the visits into shorter pieces: more pictures,
     each made from fewer frames (noisier).
+    max_len_days=0 (api days=0): every-frame mode, one picture per exposure, each frame cleaned
+    and reprojected on its own (no clipping; n_min is at most 1, so every picture counts as
+    "few frames"); date then includes the time (YYYY-MM-DD HH:MM). More than MAX_PICTURES
+    pictures raise ValueError.
     detector: one ('D2' or 2) or several combined ('D5+D6', ['D5', 'D6'], 'all'), like
     WiseView's W1 / W2 / W1+W2. With several, each detector is stacked on its own first and the
     stacks are then averaged, so every detector counts equally however many frames it has.
@@ -190,6 +201,13 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
     frames = frames.copy()                    # the caller's visit numbers (api.visits), if it has them
     frames["source_visit"] = np.asarray(frames["epoch"]) if "epoch" in frames.colnames else -1
     frames = assign_epochs(frames, gap_days, max_len_days)
+    every = max_len_days <= 0
+    if every:
+        clip = False                          # one frame per picture: nothing to clip against
+        n_pics = len(set(frames["epoch"][np.isin(frames["detector"], dets)]))
+        if n_pics > MAX_PICTURES:
+            raise ValueError(f"One picture per frame would make {n_pics} pictures (at most {MAX_PICTURES}). "
+                             "Use weekly pictures, or one detector instead of several.")
     t_mid = Time((frames["mjd"].min() + frames["mjd"].max()) / 2, format="mjd")
     grid_wcs, shape = make_grid(at_time(target, t_mid), grid_arcmin, pixscale_arcsec)
 
@@ -231,7 +249,7 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
                                                      for r in used_rows if "collection" in r.colnames})),
                        "visit": max(set(src), key=lambda v: (src.count(v), -v)),   # most frames; ties: earlier
                        "epoch": int(e), "detector": det, "mjd": mjd,
-                       "date": Time(mjd, format="mjd").iso[:10], "n_frames": used,
+                       "date": Time(mjd, format="mjd").iso[:16 if every else 10], "n_frames": used,
                        "detectors_used": "+".join(have), "wl_range": wl_range,
                        "n_min": min(n_mins),             # weakest per-detector frame count in the centre
                        "clipped_fraction": n_rej / n_vals if n_vals else 0.0, "clip": bool(clip),
