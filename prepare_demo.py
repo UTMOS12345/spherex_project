@@ -154,7 +154,9 @@ def run_target(name, cfg, a, log):
             fig, binned = api.spectrum_figure(name)
             fig.savefig(folder / "spectrum.png", bbox_inches="tight")
             plt.close(fig)
-            note, n = binned.meta.get("warning"), len(binned)
+            note = binned.meta.get("warning")
+            n = len({(d, c) for d, c, f in zip(binned["detector"], binned["channel"], binned["channel_flux_mjy"])
+                     if np.isfinite(f)})                     # channels with an average
         except ValueError as e:
             (folder / "spectrum.png").unlink(missing_ok=True)
             note, n = str(e), 0

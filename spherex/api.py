@@ -35,7 +35,7 @@ from .gaia import gaia_overlay, draw_gaia
 from .photometry import light_curve
 from .plots import (plot_light_curve_simple, plot_spectrum, plot_spectra_visits, wavelength_spread, WL_SPREAD_UM,
                     THEME)
-from .spectrum import spectrum, bin_to_channels
+from .spectrum import spectrum, bin_to_channels, channel_edges
 from .targets import parse_target, at_time, has_pm, known_target, known_near, target_name
 from .wise import wise_overlay
 from . import net
@@ -538,6 +538,69 @@ def _join(*notes):
     return " ".join(n for n in notes if n) or None
 
 
+def _state(t):
+    """Per-row state and 'masked' flag of a measurement table (light curve or spectrum):
+    ok        usable, drawn as a point;
+    saturated star saturated: flux_mjy is NaN, flux_min_mjy (if finite) is a lower limit;
+    masked    most of the measuring circle masked: not measured, no value at all;
+    flagged   a value exists but some masked pixels are in the circle: not used."""
+    ok = np.asarray(t["ok"], bool)
+    sat = np.asarray(t["saturated"], bool)
+    nan = ~np.isfinite(np.asarray(t["flux_mjy"], float))
+    masked = nan & ~sat & ~ok
+    t["masked"] = masked
+    t["state"] = np.where(ok, "ok", np.where(sat, "saturated", np.where(masked, "masked", "flagged")))
+    return t
+
+
+def _light_curve_table(lc):
+    """Light-curve rows + what the figure draws per visit: visit_mjd (where the visit average is
+    drawn), visit_flux_mjy (mean of the visit's usable points), visit_spread_mjy (their standard
+    deviation; the point's own error if there is only one), visit_n_ok (usable points; 1 = drawn as
+    an open 'single measurement' symbol, not joined by a line). NaN / 0 for visits with none."""
+    lc = _state(lc)
+    v = np.asarray(lc["visit"])
+    ok = np.asarray(lc["ok"], bool)
+    flux, err = np.asarray(lc["flux_mjy"], float), np.asarray(lc["err_mjy"], float)
+    cols = {k: np.full(len(lc), np.nan) for k in ("visit_mjd", "visit_flux_mjy", "visit_spread_mjy")}
+    n_ok = np.zeros(len(lc), int)
+    for x in set(v):
+        rows, good = v == x, (v == x) & ok
+        cols["visit_mjd"][rows] = np.mean(np.asarray(lc["mjd"], float)[rows])
+        n_ok[rows] = good.sum()
+        if good.any():
+            cols["visit_flux_mjy"][rows] = flux[good].mean()
+            cols["visit_spread_mjy"][rows] = flux[good].std() if good.sum() > 1 else err[good][0]
+    for k, val in cols.items():
+        lc[k] = val
+    lc["visit_n_ok"] = n_ok
+    return lc
+
+
+def _spectrum_table(spec, binned, visit):
+    """One row per measurement of a spectrum (as plot_spectrum draws them), with state/masked, the
+    visit, and the channel average the row falls in: channel (1-17, 0 = outside the channel grid),
+    channel_wavelength_um (channel centre, where the average is drawn), channel_flux_mjy,
+    channel_err_mjy, channel_n. The channel columns are NaN / 0 where no average is drawn
+    (no usable measurement in that channel, or a saturated visit shown as lower limits only)."""
+    t = _state(spec.copy())
+    t["visit"] = np.full(len(t), int(visit))
+    edges = channel_edges()
+    det, wl = np.asarray(t["detector"], int), np.asarray(t["wavelength_um"], float)
+    ch = np.zeros(len(t), int)
+    for i, (d, w) in enumerate(zip(det, wl)):
+        e = edges.get(d)
+        if e is not None and e[0] <= w < e[-1]:
+            ch[i] = int(np.searchsorted(e, w, side="right"))
+    t["channel"] = ch
+    avg = {(int(r["detector"]), int(r["channel"])): r for r in binned}
+    for col, src in [("channel_wavelength_um", "wavelength_um"), ("channel_flux_mjy", "flux_mjy"),
+                     ("channel_err_mjy", "err_mjy")]:
+        t[col] = [float(avg[(d, c)][src]) if (d, c) in avg else np.nan for d, c in zip(det, ch)]
+    t["channel_n"] = [int(avg[(d, c)]["n"]) if (d, c) in avg else 0 for d, c in zip(det, ch)]
+    return t
+
+
 def _with_warning(fig, table, warning):
     """Put a neighbour warning on the figure (bottom line) and in table.meta['warning']."""
     if warning:
@@ -550,7 +613,8 @@ def _with_warning(fig, table, warning):
 def light_curve_figure(text, band=1.6, tol=0.02):
     """Brightness over time at one wavelength (micron) -> (figure, table).
     Table columns: mjd, date, wavelength_um, flux_mjy, err_mjy, flux_min_mjy, detector, n_bad, saturated,
-    bad_flags, ok, release. table.meta['warning'] (if present) explains saturation, neighbours in the
+    bad_flags, ok, release, visit, masked, state, visit_mjd, visit_flux_mjy, visit_spread_mjy,
+    visit_n_ok (see _light_curve_table). table.meta['warning'] (if present) explains saturation, neighbours in the
     measuring circle, a wavelength spread above WL_SPREAD_UM between the usable points, a mix of
     data releases, or a tolerance above MAX_SAFE_TOL.
     Keep tol small: a wide window mixes wavelengths, which can look like variability.
@@ -563,6 +627,7 @@ def light_curve_figure(text, band=1.6, tol=0.02):
                          + (" Demo mode uses only images already in cache/." if net.DEMO_MODE else ""))
     fig = plot_light_curve_simple(lc, f"{text}: brightness at {band:g} ± {tol:g} µm",
                                   span_mjd=(frames["mjd"].min(), frames["mjd"].max()))
+    lc = _light_curve_table(lc)
     warning = SATURATED_NOTE if (lc["saturated"] & ~lc["ok"]).any() else None
     wide = (f"The tolerance of ±{tol:g} µm mixes wavelengths; across a steep spectrum that alone can look "
             f"like variability. Use ±{MAX_SAFE_TOL:g} µm or less to compare brightnesses.") if tol > MAX_SAFE_TOL else None
@@ -571,9 +636,12 @@ def light_curve_figure(text, band=1.6, tol=0.02):
 
 
 def spectrum_figure(text, visit=-1, all_visits=False):
-    """Brightness at every wavelength -> (figure, table of channel averages).
-    visit: which visit (-1 = latest). all_visits=True overlays every visit instead
-    (the table then has an extra 'visit' column)."""
+    """Brightness at every wavelength -> (figure, table).
+    visit: which visit (-1 = latest). all_visits=True overlays every visit instead.
+    The table has one row per measurement, everything the figure draws: wavelength_um, flux_mjy,
+    err_mjy, flux_min_mjy, detector, mjd, n_bad, saturated, bad_flags, ok, release, masked, state,
+    visit, channel, channel_wavelength_um, channel_flux_mjy, channel_err_mjy, channel_n
+    (see _spectrum_table)."""
     target, frames = _load(text)
     ids = sorted(set(frames["epoch"]))
     if all_visits:
@@ -586,14 +654,12 @@ def spectrum_figure(text, visit=-1, all_visits=False):
                 b = b[:0]                                  # a few stray channels: show the limits instead
                 saturated = True
             per.append((sub["date"][0][:10], b, spec))
-            if len(b):
-                b = b.copy(); b["visit"] = int(e); tables.append(b)
             if len(spec):
-                spec = spec.copy(); spec["visit"] = int(e); specs.append(spec)
+                specs.append(_spectrum_table(spec, b, e))
         if not specs:
             raise ValueError(f"No spectrum could be measured for '{text}' in any visit.")
         from astropy.table import vstack
-        table = vstack(tables) if tables else vstack(specs)          # saturated: every measurement
+        table = vstack(specs)
         mixed = _mixed_releases_note(vstack(specs))
         fig = plot_spectra_visits(per, f"{text}: spectrum of every visit")
         if mixed:
@@ -615,7 +681,7 @@ def spectrum_figure(text, visit=-1, all_visits=False):
     if saturated:
         binned = binned[:0]                                # a few stray channels: show the limits instead
     fig = plot_spectrum(spec, binned, f"{text}: spectrum, visit of {sub['date'][0][:10]}", log="auto")
-    table = binned if len(binned) else spec                # saturated: every measurement, with limits
+    table = _spectrum_table(spec, binned, ids[visit])
     return _with_warning(fig, table, _join(SATURATED_NOTE if saturated else None,
                                            _neighbour_warning(target, np.median(sub["mjd"]))))
 
