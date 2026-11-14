@@ -19,6 +19,7 @@ from spherex import api, set_style
 TARGETS = ["Barnard's Star", "Epsilon Indi B", "WISE 0855", "RW Aur", "R Draconis"]
 VIEWS = ["video", "compare", "overlays", "light curve", "spectrum", "data", "about"]
 MODES = ["normal", "difference", "minusmean"]
+STEPS = list(api.TIME_STEPS)                # "per visit", "monthly", "weekly", "every frame"
 # only to fill in the boxes when api.defaults itself fails (it is not an API call)
 FALLBACK = dict(detector="D2", band=1.6, tol=0.02)
 
@@ -120,6 +121,20 @@ def url_fov():
     return min(max(v, 2.0), float(api.MAX_FOV))
 
 
+def url_days():
+    """Time step from the URL: one of the api.TIME_STEPS values, else one picture per visit."""
+    try:
+        v = int(q.get("days", 60))
+    except (TypeError, ValueError):
+        return 60
+    return v if v in api.TIME_STEPS.values() else 60
+
+
+def step_label(days):
+    """api.TIME_STEPS value -> its label for the time-step box."""
+    return next((k for k, v in api.TIME_STEPS.items() if v == days), STEPS[0])
+
+
 def slug(text):
     return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_") or "target"
 
@@ -166,6 +181,7 @@ def first_setup():
     st.session_state["view"] = q.get("view") if q.get("view") in VIEWS else "video"
     st.session_state["mode"] = q.get("mode") if q.get("mode") in MODES else "normal"
     st.session_state["raw"] = q.get("clip") == "0"      # ?clip=0 -> plain average of the frames
+    st.session_state["days"] = url_days()               # time step; not a widget key, so it survives view changes
     st.session_state["_defaults_for"] = st.session_state["target"]
 
 
@@ -214,7 +230,12 @@ READ_PLAYER = {
 
 def video_panel():
     mode = st.radio("mode", MODES, horizontal=True, key="mode")
-    fps = st.slider("pictures per second", 1, 8, 3, key="fps")
+    c1, c2 = st.columns([3, 2])
+    fps = c1.slider("pictures per second", 1, 8, 3, key="fps")
+    step = c2.selectbox("time step", STEPS, index=STEPS.index(step_label(st.session_state["days"])),
+                        key="step", help="How long one picture may cover: one per visit, per month, "
+                                         "per week, or every single frame.")
+    st.session_state["days"] = api.TIME_STEPS[step]
     text = st.session_state["target"].strip()
     detector = st.session_state["detector"].strip() or None
     wl = st.session_state["wl"].strip() or None
@@ -377,4 +398,5 @@ st.query_params.update(
     view=view,
     mode=st.session_state.get("mode", "normal"),
     clip="0" if st.session_state["raw"] else "1",
+    days=str(st.session_state.get("days", 60)),
 )
