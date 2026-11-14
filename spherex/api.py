@@ -111,6 +111,13 @@ def _epochs(text, detector="D2", fov=4.0, wl=None, days=60, clip=True):
     if not 1 <= fov <= MAX_FOV:            # larger views would need new, bigger downloads of every frame
         raise ValueError(f"Field of view must be between 1 and {MAX_FOV:g} arcmin.")
     wl = _wl(wl)
+    try:
+        days = float(days)
+    except (TypeError, ValueError):
+        raise ValueError("days must be a number: 60 (one picture per visit), 30, 7, or 0 (every frame).")
+    if days < 0:
+        raise ValueError("days must be 0 (every frame) or more.")
+    days = int(days) if days == int(days) else days
     det = None if (wl and not detector) else "+".join(parse_detectors(detector or "D2"))
     target, frames = _load(text)
     # the frame URLs are part of the key: a refresh that swaps releases rebuilds the stacks
@@ -153,7 +160,7 @@ def _pick(eps, visit):
     try:
         return eps[visit]
     except IndexError:
-        raise ValueError(f"There are only {len(eps)} visits (use 0..{len(eps) - 1}, or -1 for the latest).")
+        raise ValueError(f"There are only {len(eps)} pictures (use 0..{len(eps) - 1}, or -1 for the latest).")
 
 
 def _image_figure(img, wcs, title, marker=None, diverging=False, rgb=False):
@@ -335,7 +342,7 @@ show(0); if (F.length > 1) start(); else play.disabled = true;
 
 # ------------------------------------------------------------------ 3. single pictures
 def picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=None,
-            long="D6", short="D2", rgb="D6,D3,D1", clip=True):
+            long="D6", short="D2", rgb="D6,D3,D1", clip=True, days=60):
     """One picture -> matplotlib figure (st.pyplot(fig)).
     kind: 'visit'    one visit's stack (visit = 0, 1, ... or -1 for the latest)
           'deep'     all visits added
@@ -344,9 +351,11 @@ def picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=
           'banddiff' detector `long` minus scaled detector `short`, latest common visit:
                      normal stars cancel, unusually red (cold) objects stay
           'rgb'      colour picture from three detectors 'red,green,blue'
-    clip: True = sigma-clipped stacks; False = plain average (see flipbook)."""
+    clip: True = sigma-clipped stacks; False = plain average (see flipbook).
+    days: as in flipbook; visit, a and b are rows of epochs(..., days=days), the same pictures
+    as the video with those settings. banddiff / rgb use the latest picture all detectors share."""
     if kind in ("visit", "deep", "pair"):
-        target, _, eps = _epochs(text, detector, fov, wl, clip=clip)
+        target, _, eps = _epochs(text, detector, fov, wl, days, clip)
         label = eps[0]["detector"]
         if kind == "visit":
             ep = _pick(eps, visit)
@@ -374,7 +383,7 @@ def picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=
             raise ValueError("rgb needs three detectors, like 'D6,D3,D1'.")
         sets = []
         for d in dets:
-            target, _, eps = _epochs(text, d, fov, clip=clip)
+            target, _, eps = _epochs(text, d, fov, None, days, clip)
             sets.append(eps)
         common = sorted(set.intersection(*[set(e["epoch"] for e in s) for s in sets]))
         if not common:
@@ -427,13 +436,14 @@ def _distrust_halo_motions(wise_stars, center, radius, t):
 
 
 def overlay_figure(text, detector="D2", fov=4.0, visit=-1, gaia=True, wise=True, asteroids=False,
-                   min_pm=50, arrow_years=5):
+                   min_pm=50, arrow_years=5, days=60):
     """A visit's picture with catalogue overlays -> (figure, notes).
     notes is a dict: what was drawn, what failed, and a catalogue check for the target
     ('in_gaia', 'in_wise', 'nearest_gaia_arcsec', 'nearest_wise_arcsec', 'verdict').
     The verdict only says which catalogues have a source within 3 arcsec - not whether
-    SPHEREx detects anything. WISE motions get an arrow only when measured at >= 5 sigma."""
-    target, _, eps = _epochs(text, detector, fov)
+    SPHEREx detects anything. WISE motions get an arrow only when measured at >= 5 sigma.
+    visit is a row of epochs(text, detector, fov, days=days)."""
+    target, _, eps = _epochs(text, detector, fov, None, days)
     ep = _pick(eps, visit)
     t = Time(ep["mjd"], format="mjd")
     shape = ep["image"].shape
