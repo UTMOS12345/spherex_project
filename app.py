@@ -158,15 +158,23 @@ def target_detector():
         return FALLBACK["detector"]
 
 
-def few_frames(text, detector, fov, wl, clip, days):
-    """True when at least one picture of these settings rests on fewer than 4 frames.
-    api.epochs shares the stacks the player already built, so this is one cheap call.
-    A failure here drops the note, never the video."""
+def picture_counts(text, detector, fov, wl, clip, days):
+    """api.epochs meta for these settings: n_pictures, n_frames_total, n_few_frames (pictures
+    resting on fewer than 4 frames under the centre), or None. api.epochs shares the stacks the
+    player already built, so this is one cheap call. A failure here drops the line, never the video."""
     try:
-        table = cached_epochs(text, detector, fov, wl, clip, days, LIVE)
-        return any(bool(x) for x in table["few_frames"])
+        return dict(cached_epochs(text, detector, fov, wl, clip, days, LIVE).meta)
     except Exception:
-        return False
+        return None
+
+
+def plural(n, word):
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
+EVERY_FRAME_NOTE = ("single exposures: brightness flickers because each frame sees a slightly "
+                    "different wavelength; fast movers such as asteroids show here and not in "
+                    "stacked pictures.")
 
 
 # ------------------------------------------------------------------ state
@@ -255,9 +263,16 @@ def video_panel():
         html = cached_player(*key)
     # 800 px leaves room for a square picture plus the control bar, so nothing needs scrolling
     embed_html(html, height=800)
-    if few_frames(text, detector, fov, wl, clip, days):
-        st.warning(f"{api.FEW_FRAMES_NOTE}: some pictures here rest on fewer than 4 frames "
-                   "under the centre, so one bad frame can survive in them.")
+    counts = picture_counts(text, detector, fov, wl, clip, days)
+    if counts:
+        line = (f"{plural(counts['n_pictures'], 'picture')} from "
+                f"{plural(counts['n_frames_total'], 'frame')}")
+        if counts["n_few_frames"]:
+            line += f", {counts['n_few_frames']} built from few frames"
+        st.caption(line + (". " + EVERY_FRAME_NOTE if days == 0 else ""))
+        if counts["n_few_frames"] and days != 0:     # every frame: all of them, said above
+            st.warning(f"{api.FEW_FRAMES_NOTE}: some pictures here rest on fewer than 4 frames "
+                       "under the centre, so one bad frame can survive in them.")
     st.caption(READ_PLAYER[mode])
 
     # the gif is only built when asked for; its bytes stay for as long as the settings do
