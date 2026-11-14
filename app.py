@@ -1,7 +1,7 @@
 r"""SPHEREx Flipbook: the Streamlit frontend for the spherex data library.
 
 Built so far: page skeleton, target search with its options, the video view (interactive
-player + gif export) and the overlays view.
+player + gif export), the overlays view and the spectrum view.
 
     $env:SPHEREX_DEMO="1"; .venv\Scripts\python.exe -m streamlit run app.py
 
@@ -102,6 +102,13 @@ def cached_player(text, detector, fov, mode, wl, fps, live, clip):
 def cached_flipbook(text, detector, fov, mode, wl, fps, live, clip):
     """GIF bytes for the export button. Same key rule as the player."""
     return call(api.flipbook, text, detector, fov, mode, fps, wl, clip=clip)
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def cached_visits(text, live):
+    """One row per SPHEREx visit, for the spectrum's visit picker. Without a detector this
+    only reads the cached frame tables, so it does not stack images."""
+    return call(api.visits, text)
 
 
 def url_fov():
@@ -275,6 +282,43 @@ def overlays_panel():
                    "WISE counterpart: their halos hide the WISE motions around them.")
 
 
+SPECTRUM_READ_ONE = ("small dots = single measurements; large dots joined by a line = the average "
+                     "in each channel; grey x = flagged; grey triangles = lower limits of a "
+                     "saturated star (its true brightness is higher).")
+SPECTRUM_READ_ALL = ("one line per visit; a visit drawn only as triangles is saturated, so its "
+                     "true brightness is higher; compare the shapes, not single points.")
+
+
+def spectrum_panel():
+    """Brightness at every wavelength for one visit, or for all of them. The visit numbers are
+    the rows of api.visits: api.spectrum_figure counts visits in that same order."""
+    text = st.session_state["target"].strip()
+    every = st.checkbox("every visit", key="spec_every")
+    visits = cached_visits(text, LIVE)          # raises the api's readable message if no data
+    labels = [f"visit {int(r['visit'])}: {r['first_date']} to {r['last_date']} "
+              f"({int(r['n_frames'])} frames)" for r in visits]
+    if not labels:
+        st.info("no visits with images for this target.")
+        return
+    idx = st.selectbox("visit", list(range(len(labels))), index=len(labels) - 1,
+                       format_func=labels.__getitem__, disabled=every, key="spec_visit")
+
+    if not st.button("measure", key="spec_run"):
+        return                                  # the spectrum is only measured on a press
+    with st.spinner("measuring the spectrum..."):
+        fig, table = call(api.spectrum_figure, text, visit=idx, all_visits=every)
+    show(fig)
+    warning = table.meta.get("warning")         # saturation, neighbours, mixed releases
+    if warning:
+        st.warning(warning)
+    st.caption(SPECTRUM_READ_ALL if every else SPECTRUM_READ_ONE)
+    df = table.to_pandas()
+    st.dataframe(df, hide_index=True)
+    st.download_button("download csv", df.to_csv(index=False).encode("utf-8"),
+                       file_name=f"spectrum_{slug(text)}.csv", mime="text/csv",
+                       on_click="ignore")   # keep the figure on the page while the file downloads
+
+
 # ------------------------------------------------------------------ page
 first_setup()
 st.title("SPHEREx Flipbook")
@@ -319,6 +363,8 @@ if view == "video":
     guarded(video_panel)
 elif view == "overlays":
     guarded(overlays_panel)
+elif view == "spectrum":
+    guarded(spectrum_panel)
 else:
     st.info(f"the {view} view is built in the next step.")
 
