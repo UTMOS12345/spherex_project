@@ -83,17 +83,27 @@ both need the network and take long.
   motion.
 - Frame search results merged across DR1 and QR3; cutouts read from the cache.
 - Cleaning: ZODI subtraction and masking of flagged pixels (both FLAGS header formats).
-- Stacking each visit onto one sky grid with a sigma-clipped mean, so a single bad frame
-  cannot create a fake source.
+- Stacking each visit onto one sky grid. Where 4 or more frames cover a pixel, a sigma-clipped
+  mean (4 sigma, median centre, MAD spread) rejects values that disagree with the other frames,
+  so a single bad frame cannot create a fake source; where 2 or 3 frames cover it, the median;
+  one frame is used as it is. Each visit reports `n_min` (fewest frames under the centre of the
+  picture) and `clipped_fraction` (share of values rejected, 1-4% on the test targets); pictures
+  from fewer than 4 frames are titled "few frames: unreliable". `clip=False` gives the plain
+  average of the frames instead (identical to the stacks before the clipping was added).
 - The video as an animated GIF and as an interactive player page (play, pause, step, slider),
   in three modes: normal, difference (each visit minus the first), minus-mean.
-- Pictures: one visit, deep (all visits), pair difference, band difference, RGB.
+- Pictures: one visit, deep (all visits), pair difference (always the later visit minus the
+  earlier: red = brighter later, blue = brighter earlier), band difference (red = brighter in D6,
+  blue = brighter in scaled D2), RGB.
 - Combined detectors (`D5+D6`, `all`) and wavelength-range pictures (`4.4-4.7`).
 - Gaia DR3 and CatWISE2020 overlays with proper-motion arrows and a catalogue check of the target.
-- Light curve at one wavelength: one marker per data release, lower limits for saturated stars,
-  and warnings for saturation, neighbouring stars in the measuring circle, mixed data releases
-  and wide wavelength windows.
-- Spectrum of the latest visit and of every visit, with lower limits for saturated stars.
+- Light curve at one wavelength: one average per SPHEREx visit, one marker per data release, each
+  point labelled with the wavelength it was measured at, lower limits for saturated stars, and
+  warnings for saturation, neighbouring stars in the measuring circle, mixed data releases,
+  points measured at different wavelengths, and wide wavelength windows.
+- Spectrum of the latest visit and of every visit, with lower limits only for saturated
+  measurements (a mostly masked measuring circle is shown as "masked: not measured"), and a
+  mixed-release note on the every-visit spectrum.
 - Flags view and visits table.
 - Offline (demo) mode: every view above runs with the network switched off.
 
@@ -115,7 +125,9 @@ player inside the page).
 - **WISE 0855** (3 visits, all DR1). The coldest known brown dwarf, faint and only seen at 4-5 µm.
   The CatWISE overlay shows its 8″ per year motion. A G = 16.3 star lies 4-8″ away, inside the
   measuring circle: its spectrum below about 3 µm is that star, and its light curve is affected.
-  The figures carry this warning.
+  The figures carry this warning and name the neighbour as the main light source where WISE 0855
+  is faint. Its first visit has only 3 frames, so pictures that use it are marked
+  "few frames: unreliable".
 - **RW Aur** (3 visits). A young variable star: brighter by about 50% at 0.9 µm in the last visit
   than in the first two. Field stars in the same frames stay within 1-3%, so the change is real.
 - **R Draconis** (6 visits; D3 images in 3 of them). A pulsating red giant, saturated in every
@@ -129,7 +141,17 @@ player inside the page).
 - **Neighbouring stars**: SPHEREx pixels are 6.15″ and the measuring circle is 12″ in radius.
   Gaia stars inside it are reported; stars only bright in the infrared are not checked.
 - **Mixed data releases**: light curves and per-visit spectra can combine DR1 and QR3 frames,
-  whose calibration can differ by several percent. Light curves mark this; per-visit spectra do not.
+  whose calibration can differ by several percent. Both say so on the figure and in the warning.
+- **Wavelength differences within a light curve**: each point is measured where the target falls
+  within ±0.02 µm of the chosen wavelength, so points can differ by up to 0.04 µm. On a steep
+  spectrum that alone changes the flux by several percent (Epsilon Indi B: about 10%). The figure
+  labels every point's wavelength and warns when they differ by more than 0.01 µm.
+- **Stacking hides short events**: the sigma clipping suppresses sources that are in only a
+  minority of a visit's frames: an asteroid moving about one pixel (3″) per frame keeps about a
+  third of its light, a flare seen in 6 of 21 frames about three quarters. `clip=False` (plain
+  average) or weekly pictures (`days=7`) show them, along with any single-frame defects.
+- **Few frames**: with 2 frames per pixel the median is the mean of the two, so a bad value still
+  shows; pictures resting on fewer than 4 frames are marked "few frames: unreliable".
 - **Sparse light curves**: a light curve uses only frames where the target falls within
   ±0.02 µm of the chosen wavelength, so a target has 1-5 points.
 - **Slow first load for new targets**: searching IRSA and downloading 50-70 cutouts, one after

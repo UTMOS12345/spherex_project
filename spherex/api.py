@@ -36,7 +36,7 @@ from .photometry import light_curve
 from .plots import (plot_light_curve_simple, plot_spectrum, plot_spectra_visits, wavelength_spread, WL_SPREAD_UM,
                     THEME)
 from .spectrum import spectrum, bin_to_channels
-from .targets import parse_target, at_time, has_pm, known_target, target_name
+from .targets import parse_target, at_time, has_pm, known_target, known_near, target_name
 from .wise import wise_overlay
 from . import net
 from .net import set_demo_mode            # api.set_demo_mode(True): cached data only, no hangs
@@ -187,7 +187,7 @@ def resolve(text):
             "ra_hms": hms, "dec_dms": dms, "has_motion": has_pm(c),
             "pm_ra": float(c.pm_ra_cosdec.to_value(u.mas / u.yr)) if has_pm(c) else 0.0,
             "pm_dec": float(c.pm_dec.to_value(u.mas / u.yr)) if has_pm(c) else 0.0,
-            "known": known_target(text) is not None}
+            "known": known_target(text) is not None or known_near(c) is not None}
 
 
 def visits(text, refresh=False, detector=None, fov=4.0, clip=True):

@@ -99,7 +99,7 @@ def plot_light_curve(lc, title, out_png=None, gap_days=30):
 
 
 def _fmt(v):
-    """A brightness for a label: 3 significant figures (0.334, 41.2, 2,350)."""
+    """A brightness for a label: 3 significant figures (0.334, 41.2, 2,349)."""
     return f"{v:,.0f}" if abs(v) >= 999.5 else f"{v:#.3g}".rstrip(".")
 
 
