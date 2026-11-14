@@ -1,7 +1,7 @@
 r"""SPHEREx Flipbook: the Streamlit frontend for the spherex data library.
 
 Built so far: page skeleton, target search with its options, the video view (interactive
-player + gif export), the overlays view and the spectrum view.
+player + gif export), the overlays view, the spectrum view and the light curve view.
 
     $env:SPHEREX_DEMO="1"; .venv\Scripts\python.exe -m streamlit run app.py
 
@@ -393,6 +393,46 @@ def spectrum_panel():
                        on_click="ignore")   # keep the figure on the page while the file downloads
 
 
+LIGHT_CURVE_READ = ("each dot = one measurement; dots joined by a line = the average of one visit; "
+                    "grey x = flagged, grey triangles = lower limits of a saturated star (its true "
+                    "brightness is higher), open squares = not measured; gaps are times SPHEREx "
+                    "did not look here.")
+
+
+def light_curve_panel():
+    """Brightness of the target over time at one wavelength. Both boxes start from the target's
+    cached defaults (api.defaults) and are reset when the target changes."""
+    text = st.session_state["target"].strip()
+    c1, c2 = st.columns(2)
+    band = c1.number_input(
+        "wavelength (micron)", min_value=0.75, max_value=5.0, step=0.05, format="%.2f",
+        key="band", help="The wavelength at which the target is measured. The default is the "
+                         "one cached for this target.")
+    # only frames within this window around the wavelength are measured; the library warns
+    # above MAX_SAFE_TOL, so the box stops there (a wider window mixes wavelengths).
+    tol = c2.number_input(
+        "tolerance (micron)", min_value=0.005, max_value=float(api.MAX_SAFE_TOL), step=0.005,
+        format="%.3f", key="tol",
+        help=f"Only frames within ±{api.MAX_SAFE_TOL:g} micron of the wavelength are used. "
+             "A wider window mixes wavelengths, which can look like variability, so this "
+             "stops at the library's safe limit.")
+
+    if not st.button("measure", key="lc_run"):
+        return                              # the light curve is only measured on a press
+    with st.spinner("measuring the light curve..."):
+        fig, table = call(api.light_curve_figure, text, band=float(band), tol=float(tol))
+    show(fig)
+    warning = table.meta.get("warning")     # saturation, wide window, neighbours, mixed releases
+    if warning:
+        st.warning(warning)
+    st.caption(LIGHT_CURVE_READ)
+    df = table.to_pandas()
+    st.dataframe(df, hide_index=True)
+    st.download_button("download csv", df.to_csv(index=False).encode("utf-8"),
+                       file_name=f"light_curve_{slug(text)}.csv", mime="text/csv",
+                       on_click="ignore")   # keep the figure on the page while the file downloads
+
+
 # ------------------------------------------------------------------ page
 first_setup()
 st.title("SPHEREx Flipbook")
@@ -439,6 +479,8 @@ elif view == "overlays":
     guarded(overlays_panel)
 elif view == "spectrum":
     guarded(spectrum_panel)
+elif view == "light curve":
+    guarded(light_curve_panel)
 else:
     st.info(f"the {view} view is built in the next step.")
 
