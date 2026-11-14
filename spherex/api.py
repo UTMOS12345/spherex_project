@@ -152,6 +152,24 @@ def _with_few(title, *eps):
     return f"{title}\n{note}" if note else title
 
 
+def _choose(eps, pictures):
+    """pictures (None, or row numbers of api.epochs for the same settings) -> sorted row numbers.
+    The pictures are in time order, so sorted row numbers keep time order."""
+    if pictures is None:
+        return list(range(len(eps)))
+    try:
+        idx = sorted({int(i) for i in pictures})
+    except (TypeError, ValueError):
+        raise ValueError("pictures must be a list of row numbers from api.epochs, like [0, 2, 5].")
+    if not idx:
+        raise ValueError("Choose at least one picture.")
+    bad = [i for i in idx if not 0 <= i < len(eps)]
+    if bad:
+        raise ValueError(f"There are only {len(eps)} pictures with these settings (rows 0..{len(eps) - 1}); "
+                         f"{', '.join(map(str, bad))} is not one of them.")
+    return idx
+
+
 def _marker(target, ep):
     return tuple(float(v) for v in ep["wcs"].world_to_pixel(at_time(target, Time(ep["mjd"], format="mjd"))))
 
@@ -222,7 +240,7 @@ def visits(text, refresh=False, detector=None, fov=4.0, clip=True):
     return Table(rows)
 
 
-def epochs(text, detector=None, fov=4.0, wl=None, days=60, clip=True):
+def epochs(text, detector=None, fov=4.0, wl=None, days=60, clip=True, pictures=None):
     """The pictures the other functions build for exactly these settings -> table, one row per
     picture, in their order: row i is picture(..., visit=i), the a / b of kind "pair", and frame i
     of flipbook and player_html (same arguments). Build visit pickers from this, not from visits().
@@ -230,18 +248,22 @@ def epochs(text, detector=None, fov=4.0, wl=None, days=60, clip=True):
     picture titles), first_date, last_date (of the frames used), n_frames, n_min, clipped_fraction,
     few_frames (fewer than 4 frames under the centre: "few frames: unreliable"), detectors_used,
     releases. Same stacks and memory cache as the pictures: free once a video has been built.
-    detector=None means D2, unless wl is given (then the detectors covering wl)."""
+    detector=None means D2, unless wl is given (then the detectors covering wl).
+    pictures: optional list of row numbers (index) of the full table; only those rows are returned,
+    in time order, and row k is then frame k of flipbook / player_html given the same pictures.
+    index stays the number in the full table (what picture(visit=...) and pictures= take)."""
     _, _, eps = _epochs(text, detector, fov, wl, days, clip)
     iso = lambda m: Time(m, format="mjd").iso[:10]
     return Table(rows=[(i, int(e["visit"]), e["date"], iso(e["first_mjd"]), iso(e["last_mjd"]), int(e["n_frames"]),
                         int(e["n_min"]), round(float(e["clipped_fraction"]), 5), bool(_few(e)),
-                        e["detectors_used"], e["releases"]) for i, e in enumerate(eps)],
+                        e["detectors_used"], e["releases"]) for i, e in ((i, eps[i]) for i in _choose(eps, pictures))],
                  names=["index", "visit", "date", "first_date", "last_date", "n_frames", "n_min",
                         "clipped_fraction", "few_frames", "detectors_used", "releases"])
 
 
 # ------------------------------------------------------------------ 2. the video
-def flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, timeline=True, clip=True):
+def flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, timeline=True, clip=True,
+             pictures=None):
     """The little video -> GIF as bytes (st.image(gif_bytes)).
     mode: 'normal'     one picture per visit
           'difference' each visit minus the first (movers walk away from a blue hole)
@@ -250,8 +272,11 @@ def flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=6
     wl: optional wavelength range like '4.4-4.7' (micron); detector may then be None.
     days: longest time one picture may cover (60 = one per visit; 7 = weekly pictures).
     clip: True = sigma-clipped stacks (default); False = plain average of the frames, which keeps
-    sources seen in only a few frames (fast movers, flares) but also single-frame defects."""
-    target, eps, titles, norm, cmap = _video_frames(text, detector, fov, mode, wl, days, clip)
+    sources seen in only a few frames (fast movers, flares) but also single-frame defects.
+    pictures: optional list of row numbers of epochs(...) with the same settings: only those
+    pictures are shown, in time order. 'difference' subtracts the first chosen one; 'minusmean'
+    uses only the chosen ones. A difference mode needs at least 2."""
+    target, eps, titles, norm, cmap = _video_frames(text, detector, fov, mode, wl, days, clip, pictures)
     fd, path = tempfile.mkstemp(suffix=".gif")
     os.close(fd)
     try:
@@ -264,14 +289,17 @@ def flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=6
         os.remove(path)
 
 
-def _video_frames(text, detector, fov, mode, wl, days, clip=True):
+def _video_frames(text, detector, fov, mode, wl, days, clip=True, pictures=None):
     """The pictures of the video -> (target, epochs, titles, norm, cmap)."""
     target, _, eps = _epochs(text, detector, fov, wl, days, clip)
+    eps = [eps[i] for i in _choose(eps, pictures)]
     label = eps[0]["detector"]
     norm, cmap = None, "gray"
     if mode in ("difference", "minusmean"):
         if len(eps) < 2:
-            raise ValueError("A difference video needs at least 2 visits.")
+            raise ValueError("A difference video needs at least 2 pictures. "
+                             + ("Choose two or more." if pictures is not None else
+                                "These settings give only one."))
         ref = eps[0]
         eps = difference_series(eps) if mode == "difference" else minus_mean(eps)
         vals = np.concatenate([e["image"][np.isfinite(e["image"])] for e in eps])
@@ -290,14 +318,15 @@ def _video_frames(text, detector, fov, mode, wl, days, clip=True):
     return target, eps, titles, norm or shared_norm([e["image"] for e in eps]), cmap
 
 
-def player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, width=700, clip=True):
+def player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, width=700, clip=True,
+                pictures=None):
     """The video as a small web page with play/pause, step and a slider -> HTML string
-    (streamlit.components.v1.html(html, height=...)). Same pictures as flipbook()."""
+    (streamlit.components.v1.html(html, height=...)). Same pictures as flipbook(), including pictures=."""
     import base64
     import html as _html
     import io
     import json
-    target, eps, titles, norm, cmap = _video_frames(text, detector, fov, mode, wl, days, clip)
+    target, eps, titles, norm, cmap = _video_frames(text, detector, fov, mode, wl, days, clip, pictures)
     pngs = []
     fig, ax = plt.subplots(figsize=(6, 6))
     for e, title in zip(eps, titles):
