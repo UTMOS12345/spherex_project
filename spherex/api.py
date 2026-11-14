@@ -361,6 +361,7 @@ img {{ width:100%; max-width:{int(width)}px; display:block; margin:0 auto; }}
 button {{ background:transparent; color:#f0efec; border:1px solid #383835; border-radius:2px; padding:3px 10px; cursor:pointer; }}
 input[type=range] {{ flex:1; max-width:420px; }}
 label {{ white-space:nowrap; cursor:pointer; }}
+[hidden] {{ display:none !important; }}   /* .bar's display:flex would otherwise show hidden bars */
 </style></head><body>
 <img id="f" alt="SPHEREx video frame">
 <div class="bar"><button id="prev">&#9664;</button><button id="play">pause</button><button id="next">&#9654;</button>
