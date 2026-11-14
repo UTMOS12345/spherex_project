@@ -49,15 +49,30 @@ def make_grid(center, size_arcmin=4.0, pixscale_arcsec=3.0):
     return w, (n, n)
 
 
+def central_min(coverage, frac=0.5):
+    """Smallest value of a coverage map over its central area (the middle `frac` of each side),
+    where the target is: how many frames the weakest part of the picture's centre rests on."""
+    ny, nx = coverage.shape
+    y0, x0 = int(ny * (1 - frac) / 2), int(nx * (1 - frac) / 2)
+    return int(np.min(coverage[y0:ny - y0, x0:nx - x0]))
+
+
 def stack_epoch(paths, grid_wcs, shape, bad_flags=BAD_FLAGS, keep_saturated_stars=True, wl_range=None,
-                return_count=False):
+                return_count=False, return_stats=False):
     """Cutout files of ONE epoch -> (stacked image, coverage map) on the common grid.
-    Each frame is cleaned (Lesson 5), levelled to zero sky, reprojected, then averaged
-    with nanmean, so a pixel that is bad in one frame is filled in by the others.
+    Each frame is cleaned (Lesson 5), levelled to zero sky and reprojected; then, pixel by pixel:
+      4 or more frames: sigma-clipped mean (CLIP_SIGMA, median centre, MAD spread), so one bad
+                        frame cannot leave a hole or a spike;
+      2 or 3 frames:    median (with 3 frames one bad value is ignored; with 2 the median is
+                        the mean of the two, so a bad value still shows);
+      1 frame:          that frame's value.
+    A pixel that is bad in one frame is filled in by the others.
     wl_range=(lo, hi) in micron: keep only pixels that see a wavelength in that range
     (a "narrow-band image"). Each frame then contributes only a stripe of pixels, so the
     picture fills in only where enough frames overlap.
-    return_count=True also returns how many frames actually contributed."""
+    return_count=True also returns how many frames actually contributed.
+    return_stats=True instead returns (stack, coverage, stats), stats = dict n (frames used),
+    n_min (central_min of the coverage)."""
     layers = []
     for p in paths:
         f = clean_frame(p, bad_flags, keep_saturated_stars)
@@ -76,13 +91,18 @@ def stack_epoch(paths, grid_wcs, shape, bad_flags=BAD_FLAGS, keep_saturated_star
                                        shape_out=shape, return_footprint=False))
     if not layers:
         empty = (np.full(shape, np.nan), np.zeros(shape, int))
+        if return_stats:
+            return (*empty, {"n": 0, "n_min": 0})
         return (*empty, 0) if return_count else empty
     cube = np.array(layers)                               # shape (n_frames, ny, nx)
     coverage = np.isfinite(cube).sum(axis=0)              # how many frames saw each pixel
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)   # "mean of empty slice" where coverage = 0
         warnings.simplefilter("ignore", AstropyUserWarning)   # sigma_clip: "invalid values" = NaNs, masked as wanted
-        stack = np.nanmean(cube, axis=0)
+        stack = np.nanmean(cube, axis=0)                  # 1 frame: its value
+        few = (coverage >= 2) & (coverage < CLIP_MIN_FRAMES)
+        if few.any():                                     # 2-3 frames: the median
+            stack = np.where(few, np.nanmedian(cube, axis=0), stack)
         if len(layers) >= CLIP_MIN_FRAMES:
             # One bad frame (an unflagged hole of -50 where the sky is ~0) would otherwise
             # survive the mean as a -150 sigma blob, and as a fake source in differences.
@@ -92,6 +112,8 @@ def stack_epoch(paths, grid_wcs, shape, bad_flags=BAD_FLAGS, keep_saturated_star
                                  stdfunc="mad_std", axis=0, masked=True)
             robust = np.ma.mean(clipped, axis=0).filled(np.nan)
             stack = np.where(coverage >= CLIP_MIN_FRAMES, robust, stack)
+    if return_stats:
+        return stack, coverage, {"n": len(layers), "n_min": central_min(coverage)}
     return (stack, coverage, len(layers)) if return_count else (stack, coverage)
 
 
@@ -123,7 +145,8 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
                 wl_range=None):
     """The whole Lesson 6 chain.
     frames table + target SkyCoord + detector -> list of dicts, one per epoch:
-    epoch, detector, mjd, date, n_frames, image, coverage, wcs.
+    epoch, detector, mjd, date, n_frames, n_min (fewest frames under the centre, per detector),
+    detectors_used, wl_range, image, coverage, wcs.
     All epochs share ONE grid fixed on the sky, so a moving star changes pixel between epochs.
     grid_arcmin is the field of view (width of the picture). The cutout size follows from it
     unless size_deg is given; up to ~10' is served from the standard 0.25 deg downloads.
@@ -157,7 +180,7 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
     epochs = []
     for e in sorted(set(frames["epoch"])):
         rows = frames[(frames["epoch"] == e) & np.isin(frames["detector"], dets)]
-        stacks, coverages, used, have, skipped = [], [], 0, [], {}
+        stacks, coverages, used, have, skipped, n_mins = [], [], 0, [], {}, []
         for d in dets:
             paths = []
             for row in rows[rows["detector"] == d]:
@@ -167,11 +190,12 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
                 except OSError as err:
                     skipped[str(err)] = skipped.get(str(err), 0) + 1
             if paths:
-                st, cov, n = stack_epoch(paths, grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range,
-                                    return_count=True)
-                if n == 0:
+                st, cov, stats = stack_epoch(paths, grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range,
+                                             return_stats=True)
+                if stats["n"] == 0:
                     continue                              # no frame of this detector saw the range
-                stacks.append(st); coverages.append(cov); used += n; have.append(d)
+                stacks.append(st); coverages.append(cov); used += stats["n"]; have.append(d)
+                n_mins.append(stats["n_min"])
         for reason, count in skipped.items():
             print(f"  epoch {e}: skipped {count} frame(s): {reason}")
         if not stacks or all(np.isnan(x).all() for x in stacks):
@@ -184,5 +208,6 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
         epochs.append({"epoch": int(e), "detector": det, "mjd": mjd,
                        "date": Time(mjd, format="mjd").iso[:10], "n_frames": used,
                        "detectors_used": "+".join(have), "wl_range": wl_range,
+                       "n_min": min(n_mins),             # weakest per-detector frame count in the centre
                        "image": stack, "coverage": coverage, "wcs": grid_wcs})
     return epochs

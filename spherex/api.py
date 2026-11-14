@@ -29,7 +29,7 @@ from .clean import clean_frame, BAD_FLAGS
 from .combine import deep_image, minus_mean, difference_series, band_difference, rgb_image
 from .diff import difference, make_gif, shared_norm
 from .download import get_cutout
-from .epochs import assign_epochs, make_epochs, parse_detectors
+from .epochs import assign_epochs, make_epochs, parse_detectors, CLIP_MIN_FRAMES
 from .frames import load_or_find_frames
 from .gaia import gaia_overlay, draw_gaia
 from .photometry import light_curve
@@ -128,6 +128,20 @@ def _epochs(text, detector="D2", fov=4.0, wl=None, days=60):
     return target, frames, _memory[key]
 
 
+FEW_FRAMES_NOTE = "few frames: unreliable"
+
+
+def _few(*eps):
+    """'few frames: unreliable' if any of these stacks rests on fewer than CLIP_MIN_FRAMES frames
+    somewhere in its centre (outliers then cannot be rejected), else ''."""
+    return FEW_FRAMES_NOTE if any(e.get("n_min", CLIP_MIN_FRAMES) < CLIP_MIN_FRAMES for e in eps) else ""
+
+
+def _with_few(title, *eps):
+    note = _few(*eps)
+    return f"{title}\n{note}" if note else title
+
+
 def _marker(target, ep):
     return tuple(float(v) for v in ep["wcs"].world_to_pixel(at_time(target, Time(ep["mjd"], format="mjd"))))
 
@@ -218,13 +232,19 @@ def _video_frames(text, detector, fov, mode, wl, days):
     if mode in ("difference", "minusmean"):
         if len(eps) < 2:
             raise ValueError("A difference video needs at least 2 visits.")
+        ref = eps[0]
         eps = difference_series(eps) if mode == "difference" else minus_mean(eps)
         vals = np.concatenate([e["image"][np.isfinite(e["image"])] for e in eps])
         lim = np.nanpercentile(np.abs(vals), 99.5) or 1
         norm, cmap = Normalize(-lim, lim), "RdBu_r"
-        titles = [f"{text}  {label}  {e['label']}" for e in eps]
+        # a difference is as unreliable as either picture in it
+        titles = [_with_few(f"{text}  {label}  {e['label']}", *((e, ref) if mode == "difference" else (e,)))
+                  for e in eps]
+        for e in eps:
+            e["few"] = _few(*((e, ref) if mode == "difference" else (e,)))
     elif mode == "normal":
-        titles = [f"{text}  {label}  {e['date']}  ({e['n_frames']} frames)" for e in eps]
+        titles = [_with_few(f"{text}  {label}  {e['date']}  ({e['n_frames']} frames)", e) for e in eps]
+        eps = [dict(e, few=_few(e)) for e in eps]
     else:
         raise ValueError("mode must be 'normal', 'difference' or 'minusmean'.")
     return target, eps, titles, norm or shared_norm([e["image"] for e in eps]), cmap
@@ -251,7 +271,8 @@ def player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, day
         fig.savefig(buf, format="png", bbox_inches="tight", dpi=100)
         pngs.append("data:image/png;base64," + base64.b64encode(buf.getvalue()).decode())
     plt.close(fig)
-    labels = [_html.escape(e.get("label") or e.get("date", "")) for e in eps]
+    labels = [_html.escape((e.get("label") or e.get("date", "")) + (f"  ({e['few']})" if e.get("few") else ""))
+              for e in eps]
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 body {{ margin:0; background:#1a1a19; color:#f0efec; font:13px system-ui, sans-serif; }}
 img {{ width:100%; max-width:{int(width)}px; display:block; margin:0 auto; }}
@@ -294,19 +315,19 @@ def picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=
         label = eps[0]["detector"]
         if kind == "visit":
             ep = _pick(eps, visit)
-            fig, _ = _image_figure(ep["image"], ep["wcs"], f"{text}  {label}  {ep['date']}  "
-                                   f"({ep['n_frames']} frames)", _marker(target, ep))
+            fig, _ = _image_figure(ep["image"], ep["wcs"], _with_few(f"{text}  {label}  {ep['date']}  "
+                                   f"({ep['n_frames']} frames)", ep), _marker(target, ep))
         elif kind == "deep":
             ep = deep_image(eps)
-            fig, _ = _image_figure(ep["image"], ep["wcs"], f"{text}  {label}  {ep['label']}\n"
-                                   f"{ep['n_frames']} frames, {ep['date']}", _marker(target, eps[-1]))
+            fig, _ = _image_figure(ep["image"], ep["wcs"], _with_few(f"{text}  {label}  {ep['label']}\n"
+                                   f"{ep['n_frames']} frames, {ep['date']}", *eps), _marker(target, eps[-1]))
         else:
             if len(eps) < 2:
                 raise ValueError("A difference needs at least 2 visits.")
             d = difference(_pick(eps, a), _pick(eps, b))
-            fig, _ = _image_figure(d["image"], d["wcs"], f"{text}  {label}  {d['label']}\n"
+            fig, _ = _image_figure(d["image"], d["wcs"], _with_few(f"{text}  {label}  {d['label']}\n"
                                    "red = brighter in the first date, blue = in the second",
-                                   _marker(target, d), diverging=True)
+                                   _pick(eps, a), _pick(eps, b)), _marker(target, d), diverging=True)
         return fig
     if kind in ("banddiff", "rgb"):
         dets = [long, short] if kind == "banddiff" else [x.strip() for x in str(rgb).split(",")]
@@ -322,13 +343,13 @@ def picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=
         chosen = [[x for x in s if x["epoch"] == common[-1]][0] for s in sets]
         if kind == "banddiff":
             d = band_difference(chosen[0], chosen[1])
-            fig, _ = _image_figure(d["image"], d["wcs"], f"{text}  {d['label']}\n"
-                                   "red = brighter at long wavelengths than normal stars",
+            fig, _ = _image_figure(d["image"], d["wcs"], _with_few(f"{text}  {d['label']}\n"
+                                   "red = brighter at long wavelengths than normal stars", *chosen),
                                    _marker(target, d), diverging=True)
         else:
             img = rgb_image(*[c["image"] for c in chosen])
-            fig, _ = _image_figure(img, chosen[0]["wcs"], f"{text}  {chosen[0]['date']}\n"
-                                   f"red = {dets[0]}, green = {dets[1]}, blue = {dets[2]}",
+            fig, _ = _image_figure(img, chosen[0]["wcs"], _with_few(f"{text}  {chosen[0]['date']}\n"
+                                   f"red = {dets[0]}, green = {dets[1]}, blue = {dets[2]}", *chosen),
                                    _marker(target, chosen[0]), rgb=True)
         return fig
     raise ValueError("kind must be 'visit', 'deep', 'pair', 'banddiff' or 'rgb'.")
@@ -417,8 +438,10 @@ def overlay_figure(text, detector="D2", fov=4.0, visit=-1, gaia=True, wise=True,
             f"Catalogue check: no Gaia DR3 or CatWISE2020 source within 3″ of {where}. This is "
             "not a detection: look at the pictures to see whether SPHEREx shows anything there. "
             "Very bright stars and fast movers can be missing from these catalogues.")
-    ax.set_title(f"{text}  {ep['detector']}  {ep['date']}\ncircles = Gaia, squares = WISE, "
-                 f"arrows = next {arrow_years:g} years, green = target", fontsize=9)
+    ax.set_title(_with_few(f"{text}  {ep['detector']}  {ep['date']}\ncircles = Gaia, squares = WISE, "
+                           f"arrows = next {arrow_years:g} years, green = target", ep), fontsize=9)
+    notes["n_min"] = ep.get("n_min")
+    notes["few_frames"] = bool(_few(ep))
     return fig, notes
 
 
