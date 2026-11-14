@@ -1,10 +1,15 @@
 """Network helper shared by every module that talks to a server, and the demo-mode switch."""
 import os
 import time
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from urllib.error import HTTPError
 
 from astropy.utils.data import conf
+
+# Where downloads and saved tables live: <project>/cache, whatever folder Python was started from.
+# Set SPHEREX_CACHE=/some/folder to use another one.
+CACHE_ROOT = Path(os.environ.get("SPHEREX_CACHE") or Path(__file__).resolve().parent.parent / "cache")
 
 RETRY_CODES = {429, 500, 502, 503, 504}   # "busy, try later"; 404/400 are never retried
 

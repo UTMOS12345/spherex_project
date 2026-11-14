@@ -81,8 +81,8 @@ def main():
     p.add_argument("target")
     p.add_argument("--detector", default=None, help="pictures from D1..D6, D5+D6, all (default: chosen per target)")
     p.add_argument("--fov", type=float, default=4.0, help="field of view in arcmin (up to ~10)")
-    p.add_argument("--a", type=int, default=-1, help="visit A for the pair difference (default: last)")
-    p.add_argument("--b", type=int, default=0, help="visit B for the pair difference (default: first)")
+    p.add_argument("--a", type=int, default=-1, help="one visit of the pair difference (default: last); the later one is shown minus the earlier")
+    p.add_argument("--b", type=int, default=0, help="the other visit of the pair difference (default: first)")
     p.add_argument("--band-diff", default="D6,D2", help="long,short detectors for the colour difference")
     p.add_argument("--rgb", default="D6,D3,D1", help="red,green,blue detectors")
     p.add_argument("--only", choices=PRODUCTS, help="make just one product")
@@ -121,9 +121,9 @@ def main():
 
     def do_pair():
         eps = epochs(det)
-        A, B = eps[a.a], eps[a.b]
-        d = difference(A, B)
-        show(d, f"{name}  {det}  {d['label']}\nred = brighter in A, blue = brighter in B",
+        later, earlier = sorted([eps[a.a], eps[a.b]], key=lambda e: e["mjd"], reverse=True)
+        d = difference(later, earlier)
+        show(d, f"{name}  {det}  later minus earlier: {d['label']}\nred = brighter later, blue = brighter earlier",
              folder / "pair_difference.png", target, diverging=True)
 
     def do_series():
@@ -144,7 +144,8 @@ def main():
             raise RuntimeError(f"no visit has both {long_d} and {short_d}")
         e = common[-1]
         d = band_difference([x for x in L if x["epoch"] == e][0], [x for x in S if x["epoch"] == e][0])
-        show(d, f"{name}  {d['label']}\nred = brighter at long wavelengths than normal stars",
+        show(d, f"{name}  {d['label']}\nred = brighter in {long_d.strip()}, blue = brighter in scaled {short_d.strip()} "
+                "(normal stars cancel)",
              folder / "band_difference.png", target, diverging=True)
 
     def do_rgb():

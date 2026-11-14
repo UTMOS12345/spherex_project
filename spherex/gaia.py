@@ -7,9 +7,9 @@ from astropy.coordinates import SkyCoord
 from astropy.table import Table
 from astropy.time import Time
 
-from .net import with_retries, find_cached_cone
+from .net import with_retries, find_cached_cone, CACHE_ROOT
 
-GAIA_DIR = Path("cache/gaia")
+GAIA_DIR = CACHE_ROOT / "gaia"
 GAIA_EPOCH = Time(2016.0, format="jyear")        # Gaia DR3 positions are for the year 2016.0
 COLUMNS = "source_id, ra, dec, pmra, pmdec, parallax, phot_g_mean_mag"
 

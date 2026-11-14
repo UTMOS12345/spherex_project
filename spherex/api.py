@@ -29,13 +29,14 @@ from .clean import clean_frame, BAD_FLAGS
 from .combine import deep_image, minus_mean, difference_series, band_difference, rgb_image
 from .diff import difference, make_gif, shared_norm
 from .download import get_cutout
-from .epochs import assign_epochs, make_epochs, parse_detectors
+from .epochs import assign_epochs, make_epochs, parse_detectors, CLIP_MIN_FRAMES
 from .frames import load_or_find_frames
 from .gaia import gaia_overlay, draw_gaia
 from .photometry import light_curve
-from .plots import plot_light_curve_simple, plot_spectrum, plot_spectra_visits
+from .plots import (plot_light_curve_simple, plot_spectrum, plot_spectra_visits, wavelength_spread, WL_SPREAD_UM,
+                    THEME)
 from .spectrum import spectrum, bin_to_channels
-from .targets import parse_target, at_time, has_pm, known_target, target_name
+from .targets import parse_target, at_time, has_pm, known_target, known_near, target_name
 from .wise import wise_overlay
 from . import net
 from .net import set_demo_mode            # api.set_demo_mode(True): cached data only, no hangs
@@ -53,6 +54,7 @@ DEMO_DEFAULTS = {
     "R Draconis":     dict(detector="D3", band=2.2, tol=0.02),   # pulsating red giant; saturated
 }
 OTHER_DEFAULTS = dict(detector="D2", band=1.6, tol=0.02)
+MAX_SAFE_TOL = 0.05       # light curves with a wider wavelength window get a warning
 # tol 0.02 um: a wider window mixes wavelengths, and across a steep spectrum that looks like
 # variability (Epsilon Indi B: 57 vs 35 mJy at 4.10 vs 4.25 um in ONE visit).
 
@@ -103,18 +105,20 @@ def _wl(wl):
     return (float(min(wl)), float(max(wl)))
 
 
-def _epochs(text, detector="D2", fov=4.0, wl=None, days=60):
-    """Stacked visits (memory-cached). detector may be None when wl is given."""
+def _epochs(text, detector="D2", fov=4.0, wl=None, days=60, clip=True):
+    """Stacked visits (memory-cached). detector may be None when wl is given.
+    clip=False: plain average of the frames (see epochs.stack_epoch)."""
     if not 1 <= fov <= MAX_FOV:            # larger views would need new, bigger downloads of every frame
         raise ValueError(f"Field of view must be between 1 and {MAX_FOV:g} arcmin.")
     wl = _wl(wl)
     det = None if (wl and not detector) else "+".join(parse_detectors(detector or "D2"))
     target, frames = _load(text)
     # the frame URLs are part of the key: a refresh that swaps releases rebuilds the stacks
-    key = (target_name(text, target), det, round(float(fov), 2), wl, days, hash(tuple(frames["access_url"])))
+    key = (target_name(text, target), det, round(float(fov), 2), wl, days, bool(clip),
+           hash(tuple(frames["access_url"])))
     if key not in _memory:
         eps = make_epochs(frames, target, det, grid_arcmin=fov, wl_range=wl,
-                          gap_days=min(30, days), max_len_days=days)
+                          gap_days=min(30, days), max_len_days=days, clip=clip)
         if not eps:
             if net.DEMO_MODE:
                 raise ValueError(f"The {det or 'matching'} images of '{text}' are not in the offline cache. "
@@ -125,6 +129,20 @@ def _epochs(text, detector="D2", fov=4.0, wl=None, days=60):
             _memory.pop(next(iter(_memory)))
         _memory[key] = eps
     return target, frames, _memory[key]
+
+
+FEW_FRAMES_NOTE = "few frames: unreliable"
+
+
+def _few(*eps):
+    """'few frames: unreliable' if any of these stacks rests on fewer than CLIP_MIN_FRAMES frames
+    somewhere in its centre (outliers then cannot be rejected), else ''."""
+    return FEW_FRAMES_NOTE if any(e.get("n_min", CLIP_MIN_FRAMES) < CLIP_MIN_FRAMES for e in eps) else ""
+
+
+def _with_few(title, *eps):
+    note = _few(*eps)
+    return f"{title}\n{note}" if note else title
 
 
 def _marker(target, ep):
@@ -169,13 +187,19 @@ def resolve(text):
             "ra_hms": hms, "dec_dms": dms, "has_motion": has_pm(c),
             "pm_ra": float(c.pm_ra_cosdec.to_value(u.mas / u.yr)) if has_pm(c) else 0.0,
             "pm_dec": float(c.pm_dec.to_value(u.mas / u.yr)) if has_pm(c) else 0.0,
-            "known": known_target(text) is not None}
+            "known": known_target(text) is not None or known_near(c) is not None}
 
 
-def visits(text, refresh=False):
+def visits(text, refresh=False, detector=None, fov=4.0, clip=True):
     """Table with one row per SPHEREx visit: visit, first_date, last_date, n_frames, D1..D6
-    (frames per detector), releases. refresh=True searches IRSA again for new data."""
+    (frames per detector), releases. refresh=True searches IRSA again for new data.
+    detector='D2' (etc.) adds, from that detector's stacks: n_min (fewest frames under the
+    picture's centre; below 4 the picture is unreliable) and clipped_fraction (share of pixel
+    values the sigma clipping rejected). This stacks the visits if they are not stacked yet."""
     _, frames = _load(text, refresh=refresh)
+    stacks = {}
+    if detector:
+        stacks = {e["epoch"]: e for e in _epochs(text, detector, fov, clip=clip)[2]}
     rows = []
     for e in sorted(set(frames["epoch"])):
         f = frames[frames["epoch"] == e]
@@ -183,34 +207,26 @@ def visits(text, refresh=False):
                "n_frames": len(f)}
         row.update({f"D{d}": int((f["detector"] == f"D{d}").sum()) for d in range(1, 7)})
         row["releases"] = ", ".join(sorted(set(str(c).replace("spherex_", "") for c in f["collection"])))
+        if detector:
+            e2 = stacks.get(int(e))
+            row["n_min"] = int(e2["n_min"]) if e2 else 0
+            row["clipped_fraction"] = round(float(e2["clipped_fraction"]), 5) if e2 else float("nan")
         rows.append(row)
     return Table(rows)
 
 
 # ------------------------------------------------------------------ 2. the video
-def flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, timeline=True):
+def flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, timeline=True, clip=True):
     """The little video -> GIF as bytes (st.image(gif_bytes)).
     mode: 'normal'     one picture per visit
           'difference' each visit minus the first (movers walk away from a blue hole)
           'minusmean'  each visit minus the average of the others (only changes remain)
     detector: 'D1'..'D6', combinations like 'D5+D6', or 'all'.   fov: width in arcmin.
     wl: optional wavelength range like '4.4-4.7' (micron); detector may then be None.
-    days: longest time one picture may cover (60 = one per visit; 7 = weekly pictures)."""
-    target, _, eps = _epochs(text, detector, fov, wl, days)
-    label = eps[0]["detector"]
-    norm, cmap = None, "gray"
-    if mode in ("difference", "minusmean"):
-        if len(eps) < 2:
-            raise ValueError("A difference video needs at least 2 visits.")
-        eps = difference_series(eps) if mode == "difference" else minus_mean(eps)
-        vals = np.concatenate([e["image"][np.isfinite(e["image"])] for e in eps])
-        lim = np.nanpercentile(np.abs(vals), 99.5) or 1
-        norm, cmap = Normalize(-lim, lim), "RdBu_r"
-        titles = [f"{text}  {label}  {e['label']}" for e in eps]
-    elif mode == "normal":
-        titles = [f"{text}  {label}  {e['date']}  ({e['n_frames']} frames)" for e in eps]
-    else:
-        raise ValueError("mode must be 'normal', 'difference' or 'minusmean'.")
+    days: longest time one picture may cover (60 = one per visit; 7 = weekly pictures).
+    clip: True = sigma-clipped stacks (default); False = plain average of the frames, which keeps
+    sources seen in only a few frames (fast movers, flares) but also single-frame defects."""
+    target, eps, titles, norm, cmap = _video_frames(text, detector, fov, mode, wl, days, clip)
     fd, path = tempfile.mkstemp(suffix=".gif")
     os.close(fd)
     try:
@@ -223,34 +239,116 @@ def flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=6
         os.remove(path)
 
 
+def _video_frames(text, detector, fov, mode, wl, days, clip=True):
+    """The pictures of the video -> (target, epochs, titles, norm, cmap)."""
+    target, _, eps = _epochs(text, detector, fov, wl, days, clip)
+    label = eps[0]["detector"]
+    norm, cmap = None, "gray"
+    if mode in ("difference", "minusmean"):
+        if len(eps) < 2:
+            raise ValueError("A difference video needs at least 2 visits.")
+        ref = eps[0]
+        eps = difference_series(eps) if mode == "difference" else minus_mean(eps)
+        vals = np.concatenate([e["image"][np.isfinite(e["image"])] for e in eps])
+        lim = np.nanpercentile(np.abs(vals), 99.5) or 1
+        norm, cmap = Normalize(-lim, lim), "RdBu_r"
+        # a difference is as unreliable as either picture in it
+        titles = [_with_few(f"{text}  {label}  {e['label']}", *((e, ref) if mode == "difference" else (e,)))
+                  for e in eps]
+        for e in eps:
+            e["few"] = _few(*((e, ref) if mode == "difference" else (e,)))
+    elif mode == "normal":
+        titles = [_with_few(f"{text}  {label}  {e['date']}  ({e['n_frames']} frames)", e) for e in eps]
+        eps = [dict(e, few=_few(e)) for e in eps]
+    else:
+        raise ValueError("mode must be 'normal', 'difference' or 'minusmean'.")
+    return target, eps, titles, norm or shared_norm([e["image"] for e in eps]), cmap
+
+
+def player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, width=700, clip=True):
+    """The video as a small web page with play/pause, step and a slider -> HTML string
+    (streamlit.components.v1.html(html, height=...)). Same pictures as flipbook()."""
+    import base64
+    import html as _html
+    import io
+    import json
+    target, eps, titles, norm, cmap = _video_frames(text, detector, fov, mode, wl, days, clip)
+    pngs = []
+    fig, ax = plt.subplots(figsize=(6, 6))
+    for e, title in zip(eps, titles):
+        ax.clear()
+        ax.imshow(e["image"], origin="lower", cmap=cmap, norm=norm)
+        x, y = _marker(target, e)
+        ax.scatter([x], [y], s=400, facecolors="none", edgecolors="lime", lw=1.2)
+        ax.set_xticks([]); ax.set_yticks([])
+        ax.set_title(title, fontsize=10)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", bbox_inches="tight", dpi=100)
+        pngs.append("data:image/png;base64," + base64.b64encode(buf.getvalue()).decode())
+    plt.close(fig)
+    labels = [_html.escape((e.get("label") or e.get("date", "")) + (f"  ({e['few']})" if e.get("few") else ""))
+              for e in eps]
+    return f"""<!doctype html><html><head><meta charset="utf-8"><style>
+body {{ margin:0; background:#1a1a19; color:#f0efec; font:13px system-ui, sans-serif; }}
+img {{ width:100%; max-width:{int(width)}px; display:block; margin:0 auto; }}
+.bar {{ display:flex; gap:8px; align-items:center; justify-content:center; margin:8px 0; }}
+button {{ background:transparent; color:#f0efec; border:1px solid #383835; border-radius:2px; padding:3px 10px; cursor:pointer; }}
+input[type=range] {{ flex:1; max-width:420px; }}
+</style></head><body>
+<img id="f" alt="SPHEREx video frame">
+<div class="bar"><button id="prev">&#9664;</button><button id="play">pause</button><button id="next">&#9654;</button>
+<input id="s" type="range" min="0" max="{len(pngs) - 1}" value="0"><span id="d"></span></div>
+<script>
+const F = {json.dumps(pngs)}, L = {json.dumps(labels)};
+let i = 0, timer = null;
+const img = document.getElementById("f"), s = document.getElementById("s"), d = document.getElementById("d"),
+      play = document.getElementById("play");
+function show(k) {{ i = (k + F.length) % F.length; img.src = F[i]; s.value = i;
+                    d.textContent = (i + 1) + "/" + F.length + "  " + L[i]; }}
+function start() {{ timer = setInterval(() => show(i + 1), {int(1000 / max(fps, 1))}); play.textContent = "pause"; }}
+function stop() {{ clearInterval(timer); timer = null; play.textContent = "play"; }}
+play.onclick = () => timer ? stop() : start();
+document.getElementById("prev").onclick = () => {{ stop(); show(i - 1); }};
+document.getElementById("next").onclick = () => {{ stop(); show(i + 1); }};
+s.oninput = () => {{ stop(); show(+s.value); }};
+show(0); if (F.length > 1) start(); else play.disabled = true;
+</script></body></html>"""
+
+
 # ------------------------------------------------------------------ 3. single pictures
 def picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=None,
-            long="D6", short="D2", rgb="D6,D3,D1"):
+            long="D6", short="D2", rgb="D6,D3,D1", clip=True):
     """One picture -> matplotlib figure (st.pyplot(fig)).
     kind: 'visit'    one visit's stack (visit = 0, 1, ... or -1 for the latest)
           'deep'     all visits added
-          'pair'     visit a minus visit b (red = brighter in a, blue = brighter in b)
+          'pair'     the later of visits a and b minus the earlier (red = brighter later,
+                     blue = brighter earlier), whichever order a and b are given in
           'banddiff' detector `long` minus scaled detector `short`, latest common visit:
                      normal stars cancel, unusually red (cold) objects stay
-          'rgb'      colour picture from three detectors 'red,green,blue'"""
+          'rgb'      colour picture from three detectors 'red,green,blue'
+    clip: True = sigma-clipped stacks; False = plain average (see flipbook)."""
     if kind in ("visit", "deep", "pair"):
-        target, _, eps = _epochs(text, detector, fov, wl)
+        target, _, eps = _epochs(text, detector, fov, wl, clip=clip)
         label = eps[0]["detector"]
         if kind == "visit":
             ep = _pick(eps, visit)
-            fig, _ = _image_figure(ep["image"], ep["wcs"], f"{text}  {label}  {ep['date']}  "
-                                   f"({ep['n_frames']} frames)", _marker(target, ep))
+            fig, _ = _image_figure(ep["image"], ep["wcs"], _with_few(f"{text}  {label}  {ep['date']}  "
+                                   f"({ep['n_frames']} frames)", ep), _marker(target, ep))
         elif kind == "deep":
             ep = deep_image(eps)
-            fig, _ = _image_figure(ep["image"], ep["wcs"], f"{text}  {label}  {ep['label']}\n"
-                                   f"{ep['n_frames']} frames, {ep['date']}", _marker(target, eps[-1]))
+            fig, _ = _image_figure(ep["image"], ep["wcs"], _with_few(f"{text}  {label}  {ep['label']}\n"
+                                   f"{ep['n_frames']} frames, {ep['date']}", *eps), _marker(target, eps[-1]))
         else:
             if len(eps) < 2:
                 raise ValueError("A difference needs at least 2 visits.")
-            d = difference(_pick(eps, a), _pick(eps, b))
-            fig, _ = _image_figure(d["image"], d["wcs"], f"{text}  {label}  {d['label']}\n"
-                                   "red = brighter in the first date, blue = in the second",
-                                   _marker(target, d), diverging=True)
+            later, earlier = sorted([_pick(eps, a), _pick(eps, b)], key=lambda e: e["mjd"], reverse=True)
+            if later is earlier:
+                raise ValueError("A difference needs two different visits.")
+            d = difference(later, earlier)
+            fig, _ = _image_figure(d["image"], d["wcs"], _with_few(
+                f"{text}  {label}  later minus earlier: {d['label']}\n"
+                "red = brighter later, blue = brighter earlier", later, earlier),
+                _marker(target, d), diverging=True)
         return fig
     if kind in ("banddiff", "rgb"):
         dets = [long, short] if kind == "banddiff" else [x.strip() for x in str(rgb).split(",")]
@@ -258,7 +356,7 @@ def picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=
             raise ValueError("rgb needs three detectors, like 'D6,D3,D1'.")
         sets = []
         for d in dets:
-            target, _, eps = _epochs(text, d, fov)
+            target, _, eps = _epochs(text, d, fov, clip=clip)
             sets.append(eps)
         common = sorted(set.intersection(*[set(e["epoch"] for e in s) for s in sets]))
         if not common:
@@ -266,13 +364,14 @@ def picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=
         chosen = [[x for x in s if x["epoch"] == common[-1]][0] for s in sets]
         if kind == "banddiff":
             d = band_difference(chosen[0], chosen[1])
-            fig, _ = _image_figure(d["image"], d["wcs"], f"{text}  {d['label']}\n"
-                                   "red = brighter at long wavelengths than normal stars",
+            fig, _ = _image_figure(d["image"], d["wcs"], _with_few(f"{text}  {d['label']}\n"
+                                   f"red = brighter in {dets[0]}, blue = brighter in scaled {dets[1]} "
+                                   "(normal stars cancel)", *chosen),
                                    _marker(target, d), diverging=True)
         else:
             img = rgb_image(*[c["image"] for c in chosen])
-            fig, _ = _image_figure(img, chosen[0]["wcs"], f"{text}  {chosen[0]['date']}\n"
-                                   f"red = {dets[0]}, green = {dets[1]}, blue = {dets[2]}",
+            fig, _ = _image_figure(img, chosen[0]["wcs"], _with_few(f"{text}  {chosen[0]['date']}\n"
+                                   f"red = {dets[0]}, green = {dets[1]}, blue = {dets[2]}", *chosen),
                                    _marker(target, chosen[0]), rgb=True)
         return fig
     raise ValueError("kind must be 'visit', 'deep', 'pair', 'banddiff' or 'rgb'.")
@@ -361,14 +460,18 @@ def overlay_figure(text, detector="D2", fov=4.0, visit=-1, gaia=True, wise=True,
             f"Catalogue check: no Gaia DR3 or CatWISE2020 source within 3″ of {where}. This is "
             "not a detection: look at the pictures to see whether SPHEREx shows anything there. "
             "Very bright stars and fast movers can be missing from these catalogues.")
-    ax.set_title(f"{text}  {ep['detector']}  {ep['date']}\ncircles = Gaia, squares = WISE, "
-                 f"arrows = next {arrow_years:g} years, green = target", fontsize=9)
+    ax.set_title(_with_few(f"{text}  {ep['detector']}  {ep['date']}\ncircles = Gaia, squares = WISE, "
+                           f"arrows = next {arrow_years:g} years, green = target", ep), fontsize=9)
+    notes["n_min"] = ep.get("n_min")
+    notes["clipped_fraction"] = ep.get("clipped_fraction")
+    notes["few_frames"] = bool(_few(ep))
     return fig, notes
 
 
 # ------------------------------------------------------------------ 5. measurements
 APERTURE_ARCSEC = 2 * 6.15          # measure_frame's r_px=2 on 6.15" SPHEREx pixels
 SELF_MATCH_ARCSEC = 2.0             # a Gaia source this close to the target is the target itself
+CLOSE_NEIGHBOUR_ARCSEC = 8.0        # a neighbour this close dominates where the target is faint
 
 
 def _neighbour_warning(target, mjd):
@@ -396,9 +499,43 @@ def _neighbour_warning(target, mjd):
         return None
     mags = g[near]
     parts = [f"G={g:.1f} at {d:.1f}″" for d, g in sorted(zip(sep[near], mags))]
-    return (f"{int(near.sum())} Gaia star(s) inside the {APERTURE_ARCSEC:.0f}″ measuring circle "
+    text = (f"{int(near.sum())} Gaia star(s) inside the {APERTURE_ARCSEC:.0f}″ measuring circle "
             f"({', '.join(parts)}): part of the light measured comes from them, mostly at short "
             "wavelengths. Treat these brightnesses as upper limits.")
+    close = near & (sep < CLOSE_NEIGHBOUR_ARCSEC)
+    if close.any():
+        i = np.flatnonzero(close)[np.argmin(sep[close])]
+        text += (f" The neighbour at {sep[i]:.1f}″ (G={g[i]:.1f}) is so close that, at wavelengths where "
+                 "the target is faint, the measured light is "
+                 "mostly this neighbour, not the target.")
+    return text
+
+
+SATURATED_NOTE = ("The target is saturated (too bright for SPHEREx) here: triangles are lower limits from the unsaturated wings of the star; its true brightness is higher.")
+
+
+def _mixed_releases_note(table):
+    """Warning text when the measurements come from more than one data release, else None."""
+    rel = sorted(set(str(r) for r in table["release"] if str(r))) if "release" in table.colnames else []
+    if len(rel) < 2:
+        return None
+    return (f"These measurements come from different data releases ({', '.join(rel)}). Their calibration "
+            "can differ by several percent, so a step between releases is not necessarily a real change.")
+
+
+def _wavelength_spread_note(lc):
+    """Warning text when the usable light-curve points differ in wavelength by more than WL_SPREAD_UM."""
+    spread = wavelength_spread(lc)
+    if spread <= WL_SPREAD_UM:
+        return None
+    wl = np.asarray(lc["wavelength_um"][lc["ok"]], float)
+    return (f"The usable points were measured at slightly different wavelengths ({wl.min():.3f} to "
+            f"{wl.max():.3f} µm). On a steep spectrum that alone can change the flux by several percent, "
+            "so differences of that size are not necessarily a change of the source.")
+
+
+def _join(*notes):
+    return " ".join(n for n in notes if n) or None
 
 
 def _with_warning(fig, table, warning):
@@ -412,17 +549,25 @@ def _with_warning(fig, table, warning):
 
 def light_curve_figure(text, band=1.6, tol=0.02):
     """Brightness over time at one wavelength (micron) -> (figure, table).
-    Table columns: date, wavelength_um, flux_mjy, err_mjy, detector, n_bad, saturated, bad_flags, ok.
-    Keep tol small: a wide window mixes wavelengths, which can look like variability."""
+    Table columns: mjd, date, wavelength_um, flux_mjy, err_mjy, flux_min_mjy, detector, n_bad, saturated,
+    bad_flags, ok, release. table.meta['warning'] (if present) explains saturation, neighbours in the
+    measuring circle, a wavelength spread above WL_SPREAD_UM between the usable points, a mix of
+    data releases, or a tolerance above MAX_SAFE_TOL.
+    Keep tol small: a wide window mixes wavelengths, which can look like variability.
+    The time axis covers all visits of the target, not only the measured ones."""
     target, frames = _load(text)
     lc = light_curve(frames, target, band, tol_um=tol)
     if len(lc) == 0:
-        raise ValueError(f"No image has '{text}' at {band} ± {tol} micron. Try a wider tolerance.")
-    if not lc["ok"].any() and lc["saturated"].all():
-        raise ValueError(f"'{text}' is saturated (too bright) in every SPHEREx image at {band} micron, "
-                         "so its brightness cannot be measured there. The pictures still show it.")
-    fig = plot_light_curve_simple(lc, f"{text}: brightness at {band:g} ± {tol:g} µm")
-    return _with_warning(fig, lc, _neighbour_warning(target, np.median(lc["mjd"])))
+        raise ValueError(f"No image has '{text}' at {band:g} ± {tol:g} micron. Try another wavelength: "
+                         "the visits table shows which detectors observed this target."
+                         + (" Demo mode uses only images already in cache/." if net.DEMO_MODE else ""))
+    fig = plot_light_curve_simple(lc, f"{text}: brightness at {band:g} ± {tol:g} µm",
+                                  span_mjd=(frames["mjd"].min(), frames["mjd"].max()))
+    warning = SATURATED_NOTE if (lc["saturated"] & ~lc["ok"]).any() else None
+    wide = (f"The tolerance of ±{tol:g} µm mixes wavelengths; across a steep spectrum that alone can look "
+            f"like variability. Use ±{MAX_SAFE_TOL:g} µm or less to compare brightnesses.") if tol > MAX_SAFE_TOL else None
+    return _with_warning(fig, lc, _join(warning, wide, _wavelength_spread_note(lc), _mixed_releases_note(lc),
+                                        _neighbour_warning(target, np.median(lc["mjd"]))))
 
 
 def spectrum_figure(text, visit=-1, all_visits=False):
@@ -432,24 +577,32 @@ def spectrum_figure(text, visit=-1, all_visits=False):
     target, frames = _load(text)
     ids = sorted(set(frames["epoch"]))
     if all_visits:
-        per, tables, saturated = [], [], []
+        per, tables, specs, saturated = [], [], [], False
         for e in ids:
             sub = frames[frames["epoch"] == e]
             spec = spectrum(sub, target)
             b = bin_to_channels(spec)
-            per.append((sub["date"][0][:10], b))
-            saturated.append(len(spec) > 0 and spec["saturated"].mean() > 0.5)
+            if len(spec) and spec["saturated"].mean() > 0.5 and len(b) < 5:
+                b = b[:0]                                  # a few stray channels: show the limits instead
+                saturated = True
+            per.append((sub["date"][0][:10], b, spec))
             if len(b):
                 b = b.copy(); b["visit"] = int(e); tables.append(b)
-        if all(saturated) and max((len(b) for _, b in per), default=0) < 5:
-            raise ValueError(f"No usable spectrum for '{text}': it is saturated (too bright) in most "
-                             "images of every visit. The pictures still show it.")
-        if not tables:
-            raise ValueError(f"No usable spectrum for '{text}' in any visit (saturated, or every "
-                             "measurement has flagged pixels). The pictures still show it.")
+            if len(spec):
+                spec = spec.copy(); spec["visit"] = int(e); specs.append(spec)
+        if not specs:
+            raise ValueError(f"No spectrum could be measured for '{text}' in any visit.")
         from astropy.table import vstack
-        return _with_warning(plot_spectra_visits(per, f"{text}: spectrum of every visit"), vstack(tables),
-                             _neighbour_warning(target, np.median(frames["mjd"])))
+        table = vstack(tables) if tables else vstack(specs)          # saturated: every measurement
+        mixed = _mixed_releases_note(vstack(specs))
+        fig = plot_spectra_visits(per, f"{text}: spectrum of every visit")
+        if mixed:
+            rel = sorted(set(str(r) for r in vstack(specs)["release"] if str(r)))
+            fig.axes[0].text(1.01, 0.0, f"mixed data releases ({', '.join(rel)}):\n"
+                             "calibration may differ between them", transform=fig.axes[0].transAxes,
+                             ha="left", va="bottom", fontsize=8, color=THEME["flag"])   # under the legend
+        return _with_warning(fig, table, _join(SATURATED_NOTE if saturated else None, mixed,
+                                               _neighbour_warning(target, np.median(frames["mjd"]))))
     try:
         sub = frames[frames["epoch"] == ids[visit]]
     except IndexError:
@@ -458,14 +611,13 @@ def spectrum_figure(text, visit=-1, all_visits=False):
     binned = bin_to_channels(spec)
     if len(spec) == 0:
         raise ValueError(f"No spectrum could be measured for '{text}' in that visit.")
-    mostly_saturated = spec["saturated"].mean() > 0.5
-    if len(binned) == 0 or (mostly_saturated and len(binned) < 5):
-        why = ("it is saturated (too bright) in most images of that visit "
-               f"({len(binned)} of 102 channels usable)" if mostly_saturated
-               else "every measurement has flagged pixels")
-        raise ValueError(f"No usable spectrum for '{text}': {why}. The pictures still show it.")
+    saturated = spec["saturated"].mean() > 0.5 and len(binned) < 5
+    if saturated:
+        binned = binned[:0]                                # a few stray channels: show the limits instead
     fig = plot_spectrum(spec, binned, f"{text}: spectrum, visit of {sub['date'][0][:10]}", log="auto")
-    return _with_warning(fig, binned, _neighbour_warning(target, np.median(sub["mjd"])))
+    table = binned if len(binned) else spec                # saturated: every measurement, with limits
+    return _with_warning(fig, table, _join(SATURATED_NOTE if saturated else None,
+                                           _neighbour_warning(target, np.median(sub["mjd"]))))
 
 
 # ------------------------------------------------------------------ 6. contamination flags
