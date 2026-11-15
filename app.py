@@ -174,19 +174,22 @@ def with_progress(run):
 ALADIN_HTML = """<!doctype html><html><head><meta charset="utf-8"></head>
 <body style="margin:0;background:#1a1a19;color:#f0efec;font:13px system-ui, sans-serif">
 <div id="aladin" style="width:100%;height:430px">Loading sky viewer…</div>
-<script src="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js" charset="utf-8"></script>
-<script>
-  if (typeof A === "undefined") {
-    document.getElementById("aladin").textContent = "Sky viewer unavailable";
-  } else {
-    A.init.then(() => {
-      const a = A.aladin('#aladin', {target: __TARGET__, fov: __FOV__,
-        survey: "CDS/P/allWISE/color", showReticle: true,
-        showLayersControl: true});
-      const c = A.catalog({name: 'target', sourceSize: 14, color: 'red'});
-      a.addCatalog(c);
-      c.addSources([A.source(__RA__, __DEC__, {name: __NAME__})]);
-    });
+<script type="module">
+  // aladin-lite ships only an ES module (the CDS "latest/aladin.js" URL returns 404), so it is
+  // imported; any failure (no network, no WebGL2) leaves the message below instead of a blank box.
+  const box = document.getElementById("aladin");
+  try {
+    const { default: A } = await import("https://cdn.jsdelivr.net/npm/aladin-lite@3.6.1/dist/aladin.js");
+    await A.init;
+    box.textContent = "";
+    const a = A.aladin('#aladin', {target: __TARGET__, fov: __FOV__,
+      survey: "CDS/P/allWISE/color", showReticle: true,
+      showLayersControl: true});
+    const c = A.catalog({name: 'target', sourceSize: 14, color: 'red'});
+    a.addCatalog(c);
+    c.addSources([A.source(__RA__, __DEC__, {name: __NAME__})]);
+  } catch (e) {
+    box.textContent = "Sky viewer unavailable";
   }
 </script></body></html>"""
 
