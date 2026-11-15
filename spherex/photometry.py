@@ -10,7 +10,8 @@ from astropy.wcs.utils import proj_plane_pixel_area
 from photutils.aperture import CircularAperture, CircularAnnulus, aperture_photometry
 
 from .clean import clean_frame, saturated_mask, BAD_FLAGS
-from .download import get_cutout
+from .download import get_cutouts
+from .progress import report, MEASURING
 from .targets import at_time
 
 
@@ -112,28 +113,36 @@ def release_name(collection):
     return str(collection).removeprefix("spherex_").upper()
 
 
-def light_curve(frames, target, band_um, tol_um=0.02, r_px=2.0, size_deg=0.1):
+def light_curve(frames, target, band_um, tol_um=0.02, r_px=2.0, size_deg=0.1, progress=None):
     """Brightness of the target over time at ONE wavelength.
     frames table + target SkyCoord + wavelength (micron) -> Table sorted by time:
     mjd, date, wavelength_um, flux_mjy, err_mjy, flux_min_mjy, detector, n_bad, saturated, bad_flags, ok,
     release ('DR1', 'QR3', ...: the data release the frame comes from), visit (the frames' 'epoch'
     column if the table has one, from epochs.assign_epochs; else -1).
     Only frames where the target lands within tol_um of band_um are measured.
-    flux_min_mjy: for saturated measurements only, a lower limit on the brightness."""
+    flux_min_mjy: for saturated measurements only, a lower limit on the brightness.
+    progress: optional callback (spherex.progress): "downloading images", then "measuring"."""
     lo = np.asarray(frames["em_min"], float) * 1e6 - tol_um
     hi = np.asarray(frames["em_max"], float) * 1e6 + tol_um
+    sel = frames[(lo <= band_um) & (band_um <= hi)]             # only detectors that cover the band
+    positions = [at_time(target, Time(row["mjd"], format="mjd")) for row in sel]
+    paths = get_cutouts([(row["access_url"], pos, size_deg) for row, pos in zip(sel, positions)], progress)
     rows = []
-    for row in frames[(lo <= band_um) & (band_um <= hi)]:       # only detectors that cover the band
-        pos = at_time(target, Time(row["mjd"], format="mjd"))
+    report(progress, MEASURING, 0, len(sel))
+    for i, (row, pos, path) in enumerate(zip(sel, positions, paths)):
         try:
-            m = measure_frame(get_cutout(row["access_url"], pos, size_deg), pos, r_px)
+            if isinstance(path, OSError):
+                raise path
+            m = measure_frame(path, pos, r_px)
         except OSError as e:
             print(f"  skipped {row['obs_id']} {row['detector']}: {e}")
+            report(progress, MEASURING, i + 1, len(sel))
             continue
         if np.isfinite(m["wavelength_um"]) and abs(m["wavelength_um"] - band_um) <= tol_um:
             m["release"] = release_name(row["collection"]) if "collection" in frames.colnames else ""
             m["visit"] = int(row["epoch"]) if "epoch" in frames.colnames else -1
             rows.append(m)
+        report(progress, MEASURING, i + 1, len(sel))
     names = ["mjd", "date", "wavelength_um", "flux_mjy", "err_mjy", "flux_min_mjy", "detector", "n_bad", "saturated",
              "bad_flags", "ok", "release", "visit"]
     if not rows:

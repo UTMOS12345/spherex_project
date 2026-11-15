@@ -10,8 +10,9 @@ from astropy.wcs import WCS
 from reproject import reproject_interp
 
 from .clean import clean_frame, BAD_FLAGS
-from .download import get_cutout
+from .download import get_cutouts
 from . import photometry as _phot
+from .progress import report, CLEANING, STACKING
 from .targets import at_time
 
 CLIP_SIGMA = 4.0          # stacking: a frame's pixel this far from the other frames is dropped
@@ -65,7 +66,7 @@ def central_min(coverage, frac=0.5):
 
 
 def stack_epoch(paths, grid_wcs, shape, bad_flags=BAD_FLAGS, keep_saturated_stars=True, wl_range=None,
-                return_count=False, return_stats=False, clip=True):
+                return_count=False, return_stats=False, clip=True, progress=None):
     """Cutout files of ONE epoch -> (stacked image, coverage map) on the common grid.
     Each frame is cleaned (Lesson 5), levelled to zero sky and reprojected; then, pixel by pixel:
       4 or more frames: sigma-clipped mean (CLIP_SIGMA, median centre, MAD spread), so one bad
@@ -84,24 +85,39 @@ def stack_epoch(paths, grid_wcs, shape, bad_flags=BAD_FLAGS, keep_saturated_star
     return_stats=True instead returns (stack, coverage, stats), stats = dict n (frames used),
     n_min (central_min of the coverage), n_values (pixel values that went in), n_rejected
     (of those, how many the sigma clipping dropped; 0 with clip=False), used (indices into
-    `paths` of the frames that went into the stack)."""
+    `paths` of the frames that went into the stack).
+    progress: optional callback (spherex.progress): "cleaning and aligning", once per frame."""
     layers, used_idx = [], []
+    report(progress, CLEANING, 0, len(paths))
     for i_path, p in enumerate(paths):
-        f = clean_frame(p, bad_flags, keep_saturated_stars)
-        img = f["image"] - np.nanmedian(f["image"])       # remove what the ZODI model missed
-        if keep_saturated_stars:
-            # fill small holes (saturated star cores, masked neighbours) from the pixels around
-            # them, so bright stars stay solid. For pictures only, not for photometry.
-            img = interpolate_replace_nans(img, Gaussian2DKernel(1.5))
-        if wl_range is not None:                          # AFTER the filling, so no colour leaks in
-            wl = _phot.wavelength_map(p)
-            outside = ~((wl >= wl_range[0]) & (wl <= wl_range[1]))
-            if outside.all():
-                continue                                  # this frame never sees that wavelength
-            img = np.where(outside, np.nan, img)
-        layers.append(reproject_interp((img, f["wcs"]), grid_wcs,
-                                       shape_out=shape, return_footprint=False))
-        used_idx.append(i_path)
+        layer = _aligned_layer(p, grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range)
+        if layer is not None:
+            layers.append(layer)
+            used_idx.append(i_path)
+        report(progress, CLEANING, i_path + 1, len(paths))
+    return _combine_layers(layers, used_idx, shape, clip, return_count, return_stats)
+
+
+def _aligned_layer(p, grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range):
+    """One cutout file -> its cleaned, sky-levelled picture on the grid, or None when the frame
+    never sees wl_range. The per-frame half of stack_epoch."""
+    f = clean_frame(p, bad_flags, keep_saturated_stars)
+    img = f["image"] - np.nanmedian(f["image"])           # remove what the ZODI model missed
+    if keep_saturated_stars:
+        # fill small holes (saturated star cores, masked neighbours) from the pixels around
+        # them, so bright stars stay solid. For pictures only, not for photometry.
+        img = interpolate_replace_nans(img, Gaussian2DKernel(1.5))
+    if wl_range is not None:                              # AFTER the filling, so no colour leaks in
+        wl = _phot.wavelength_map(p)
+        outside = ~((wl >= wl_range[0]) & (wl <= wl_range[1]))
+        if outside.all():
+            return None                                   # this frame never sees that wavelength
+        img = np.where(outside, np.nan, img)
+    return reproject_interp((img, f["wcs"]), grid_wcs, shape_out=shape, return_footprint=False)
+
+
+def _combine_layers(layers, used_idx, shape, clip=True, return_count=False, return_stats=False):
+    """Aligned pictures of one epoch -> stack_epoch's result. The per-pixel half of stack_epoch."""
     if not layers:
         empty = (np.full(shape, np.nan), np.zeros(shape, int))
         if return_stats:
@@ -159,7 +175,7 @@ def parse_detectors(detector):
 
 def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, pixscale_arcsec=3.0,
                 gap_days=30, max_len_days=60, bad_flags=BAD_FLAGS, keep_saturated_stars=True,
-                wl_range=None, clip=True):
+                wl_range=None, clip=True, progress=None):
     """The whole Lesson 6 chain.
     frames table + target SkyCoord + detector -> list of dicts, one per epoch:
     epoch, detector, mjd, date, first_mjd, last_mjd (of the frames used), releases, visit (the
@@ -181,7 +197,9 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
     WiseView's W1 / W2 / W1+W2. With several, each detector is stacked on its own first and the
     stacks are then averaged, so every detector counts equally however many frames it has.
     wl_range: (lo, hi) in micron -> narrow-band pictures, only pixels seeing that wavelength.
-    With wl_range, detector may be None: the detectors covering the range are chosen."""
+    With wl_range, detector may be None: the detectors covering the range are chosen.
+    progress: optional callback (spherex.progress): "downloading images" (every frame),
+    "cleaning and aligning" (every frame that arrived), then "stacking visits" (per picture)."""
     if wl_range is not None:
         wl_range = (float(min(wl_range)), float(max(wl_range)))
     if detector is None:
@@ -211,31 +229,63 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
     t_mid = Time((frames["mjd"].min() + frames["mjd"].max()) / 2, format="mjd")
     grid_wcs, shape = make_grid(at_time(target, t_mid), grid_arcmin, pixscale_arcsec)
 
-    epochs = []
+    # Three passes, so each stage reports one running count (progress): 1. download every
+    # frame, 2. clean and align every frame that arrived, 3. combine each epoch. Same frames,
+    # same order and same arithmetic as stacking epoch by epoch.
+    plan, requests = [], []                               # plan: (epoch, rows, [(det, [(row, i)])])
     for e in sorted(set(frames["epoch"])):
         rows = frames[(frames["epoch"] == e) & np.isin(frames["detector"], dets)]
-        stacks, coverages, used, have, skipped, n_mins, n_vals, n_rej = [], [], 0, [], {}, [], 0, 0
-        used_rows = []                                    # the frames that went into the picture
+        per_det = []
         for d in dets:
-            paths, path_rows = [], []
+            items = []
             for row in rows[rows["detector"] == d]:
                 center = at_time(target, Time(row["mjd"], format="mjd"))   # same centre as prefetch
-                try:
-                    paths.append(get_cutout(row["access_url"], center, size_deg))
-                    path_rows.append(row)
-                except OSError as err:
-                    skipped[str(err)] = skipped.get(str(err), 0) + 1
-            if paths:
-                st, cov, stats = stack_epoch(paths, grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range,
-                                             return_stats=True, clip=clip)
+                items.append((row, len(requests)))
+                requests.append((row["access_url"], center, size_deg))
+            per_det.append((d, items))
+        plan.append((e, rows, per_det))
+    results = get_cutouts(requests, progress)             # path, or the OSError for that frame
+
+    n_arrived = sum(not isinstance(r, OSError) for r in results)
+    done = 0
+    report(progress, CLEANING, 0, n_arrived)
+    aligned = []                                          # (epoch, rows, skipped, [(det, layers, used, path_rows)])
+    for e, rows, per_det in plan:
+        skipped, groups = {}, []
+        for d, items in per_det:
+            layers, used_idx, path_rows = [], [], []
+            for row, i in items:
+                if isinstance(results[i], OSError):
+                    skipped[str(results[i])] = skipped.get(str(results[i]), 0) + 1
+                    continue
+                layer = _aligned_layer(results[i], grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range)
+                if layer is not None:
+                    layers.append(layer)
+                    used_idx.append(len(path_rows))       # index into this detector's arrived frames
+                path_rows.append(row)
+                done += 1
+                report(progress, CLEANING, done, n_arrived)
+            groups.append((d, layers, used_idx, path_rows))
+        aligned.append((e, rows, skipped, groups))
+
+    epochs = []
+    report(progress, STACKING, 0, len(aligned))
+    for i_ep, (e, rows, skipped, groups) in enumerate(aligned):
+        stacks, coverages, used, have, n_mins, n_vals, n_rej = [], [], 0, [], [], 0, 0
+        used_rows = []                                    # the frames that went into the picture
+        for d, layers, used_idx, path_rows in groups:
+            if path_rows:
+                st, cov, stats = _combine_layers(layers, used_idx, shape, clip, return_stats=True)
                 if stats["n"] == 0:
                     continue                              # no frame of this detector saw the range
                 stacks.append(st); coverages.append(cov); used += stats["n"]; have.append(d)
                 used_rows += [path_rows[i] for i in stats["used"]]
                 n_mins.append(stats["n_min"]); n_vals += stats["n_values"]; n_rej += stats["n_rejected"]
+        aligned[i_ep] = None                              # free the aligned frames of this epoch
         for reason, count in skipped.items():
             print(f"  epoch {e}: skipped {count} frame(s): {reason}")
         if not stacks or all(np.isnan(x).all() for x in stacks):
+            report(progress, STACKING, i_ep + 1, len(aligned))
             continue
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
@@ -254,4 +304,5 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
                        "n_min": min(n_mins),             # weakest per-detector frame count in the centre
                        "clipped_fraction": n_rej / n_vals if n_vals else 0.0, "clip": bool(clip),
                        "image": stack, "coverage": coverage, "wcs": grid_wcs})
+        report(progress, STACKING, i_ep + 1, len(aligned))
     return epochs

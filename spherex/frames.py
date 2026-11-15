@@ -9,6 +9,7 @@ from astropy.time import Time
 from astroquery.ipac.irsa import Irsa
 
 from .net import with_retries, CACHE_ROOT
+from .progress import report, SEARCHING
 from .targets import at_time, target_name
 
 KEEP = ["t_min", "t_max", "energy_bandpassname", "em_min", "em_max", "obs_id", "access_url"]
@@ -31,18 +32,24 @@ def spherex_collections():
     return [n for *_, n in sorted(found, reverse=True)]
 
 
-def find_frames(coord, collections=None, include_qr1=False):
+def find_frames(coord, collections=None, include_qr1=False, progress=None):
     """Target SkyCoord -> Table of frames sorted by time, merged across all releases
     (DR and QR); when an exposure is in several releases, the best one wins.
-    Columns: mjd, date, detector ('D1'..'D6'), band_um, obs_id, access_url, collection."""
+    Columns: mjd, date, detector ('D1'..'D6'), band_um, obs_id, access_url, collection.
+    progress: optional callback (spherex.progress): "searching the archive", one step for the
+    list of releases (when collections is None) and one per release searched."""
+    report(progress, SEARCHING, 0, 1)
     cols = collections or spherex_collections()
     if not include_qr1 and len(cols) > 1:
         cols = [c for c in cols if c != "spherex_qr"]
     now = at_time(coord, Time.now())                     # search where the star is now
+    total = len(cols) + 1
+    report(progress, SEARCHING, 1, total)
     parts = []
     for rank, col in enumerate(cols):                    # rank 0 = newest release
         t = with_retries(Irsa.query_sia, pos=(now, 30 * u.arcsec), collection=col)
         print(f"  {col}: {len(t)} frames")
+        report(progress, SEARCHING, rank + 2, total)
         if len(t):
             t = Table(t)[KEEP]
             t["collection"] = col
@@ -74,15 +81,16 @@ def table_path(name, coord=None):
     return TABLE_DIR / f"{safe}.ecsv"
 
 
-def load_or_find_frames(name, coord, refresh=False):
+def load_or_find_frames(name, coord, refresh=False, progress=None):
     """Like find_frames but saved to cache/frames/<name>.ecsv, so reruns work offline.
     refresh=True searches again (new SPHEREx data is released weekly).
     The file name comes from targets.target_name, so 'barnard', "Barnard's Star" and its
-    coordinates all share cache/frames/Barnard_s_Star.ecsv."""
+    coordinates all share cache/frames/Barnard_s_Star.ecsv.
+    progress: passed to find_frames when the archive is searched (nothing to report otherwise)."""
     path = table_path(name, coord)
     if path.exists() and not refresh:
         return Table.read(path)
-    frames = find_frames(coord)
+    frames = find_frames(coord, progress=progress)
     TABLE_DIR.mkdir(parents=True, exist_ok=True)
     frames.write(path, overwrite=True)
     return frames
