@@ -24,7 +24,9 @@ def known_asteroids(center, radius_deg, t):
                 return None
             raise
     res = with_retries(search, tries=2)
-    if res is None:
+    # Newer astroquery returns an empty table without columns (instead of raising "No solar
+    # system object was found") when the cone holds no known object: also "no asteroids".
+    if res is None or len(res) == 0:
         return Table(names=["name", "type", "ra", "dec", "v_mag"], dtype=[str, str, float, float, float])
     cols = {c.lower(): c for c in res.colnames}
     ra = np.asarray(u.Quantity(res[cols["ra"]]).to(u.deg).value, float)
