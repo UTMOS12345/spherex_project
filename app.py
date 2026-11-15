@@ -10,6 +10,7 @@ Demo mode is on unless the URL has ?live=1. Every API call goes through one lock
 only the view the user chose is built on a rerun.
 """
 import contextvars
+import json
 import os
 import re
 import threading
@@ -168,6 +169,44 @@ def with_progress(run):
         return run(line)
     finally:
         line.clear()
+
+
+ALADIN_HTML = """<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;background:#1a1a19;color:#f0efec;font:13px system-ui, sans-serif">
+<div id="aladin" style="width:100%;height:430px">Loading sky viewer…</div>
+<script src="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js" charset="utf-8"></script>
+<script>
+  if (typeof A === "undefined") {
+    document.getElementById("aladin").textContent = "Sky viewer unavailable";
+  } else {
+    A.init.then(() => {
+      const a = A.aladin('#aladin', {target: __TARGET__, fov: __FOV__,
+        survey: "CDS/P/allWISE/color", showReticle: true,
+        showLayersControl: true});
+      const c = A.catalog({name: 'target', sourceSize: 14, color: 'red'});
+      a.addCatalog(c);
+      c.addSources([A.source(__RA__, __DEC__, {name: __NAME__})]);
+    });
+  }
+</script></body></html>"""
+
+
+def sky_panel(text, fov):
+    """Optional Aladin Lite viewer (WISE colour images) around the resolved position."""
+    with st.expander("Sky around this target (Aladin Lite)", expanded=False):
+        try:
+            info = call(api.resolve, text)
+        except Exception:
+            st.caption("sky viewer unavailable: the target could not be resolved.")
+            return
+        ra, dec = float(info["ra"]), float(info["dec"])
+        html = (ALADIN_HTML.replace("__TARGET__", json.dumps(f"{ra} {dec}"))
+                .replace("__FOV__", repr(float(fov) / 60 if fov else 0.25))
+                .replace("__RA__", repr(ra)).replace("__DEC__", repr(dec))
+                .replace("__NAME__", json.dumps(info["name"])))
+        embed_html(html, height=450)
+        st.caption("Background images are from WISE, not SPHEREx, and are years older, so fast-moving "
+                   "stars may look offset.")
 
 
 def share_view():
@@ -506,6 +545,7 @@ def video_panel():
         html = with_progress(lambda p: cached_player(*key, real_time, _progress=p))
     # 800 px leaves room for a square picture plus the control bar, so nothing needs scrolling
     embed_html(html, height=800)
+    sky_panel(text, fov)
     counts = picture_counts(text, detector, fov, wl, clip, days, pictures)
     if counts:
         line = (f"{plural(counts['n_pictures'], 'picture')} from "

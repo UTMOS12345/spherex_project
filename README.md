@@ -43,7 +43,7 @@ calls (see `API.md`). `app.py` is the Streamlit web app.
   flags inside the measuring circle and the data release of each point; the visits table lists
   frames per detector and releases per visit.
 - **8. Public tools.** Astropy (coordinates, WCS, time, FITS, statistics), astroquery (IRSA,
-  Gaia, SIMBAD, SkyBoT), reproject and photutils. Aladin (CDS) is not used.
+  Gaia, SIMBAD, SkyBoT), reproject and photutils. Aladin Lite (CDS) is used only for the optional sky viewer.
 
 ## Cache size
 
@@ -204,6 +204,7 @@ This tool uses:
   Consortium (Gaia Collaboration, Vallenari et al. 2023, A&A 674, A1), via IRSA and the ESA Gaia archive.
 - CatWISE2020 (Marocco et al. 2021, ApJS 253, 8), via IRSA.
 - SIMBAD, operated at CDS, Strasbourg (Wenger et al. 2000), and the CDS Sesame name resolver.
+- Aladin Lite (CDS, Strasbourg), for the optional sky viewer around the target.
 - SkyBoT, IMCCE, Observatoire de Paris (Berthier et al. 2006).
 - Astropy, astroquery, reproject, photutils, NumPy and Matplotlib.
 
