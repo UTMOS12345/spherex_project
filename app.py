@@ -372,8 +372,6 @@ def first_setup():
         pass
     st.session_state["detector"] = q.get("detector", sug["detector"])
     st.session_state["wl"] = q.get("wl", "")
-    st.session_state["band"] = float(sug["band"])
-    st.session_state["tol"] = float(sug["tol"])
     st.session_state["fov"] = url_fov()
     st.session_state["view"] = q.get("view") if q.get("view") in VIEWS else "video"
     st.session_state["mode"] = q.get("mode") if q.get("mode") in MODES else "normal"
@@ -400,8 +398,6 @@ def refresh_defaults():
         sug = FALLBACK
     st.session_state["detector"] = sug["detector"]
     st.session_state["wl"] = ""
-    st.session_state["band"] = float(sug["band"])
-    st.session_state["tol"] = float(sug["tol"])
     st.session_state["_defaults_for"] = target
 
 
@@ -548,7 +544,7 @@ def spectrum_panel():
         st.info("no visits with images for this target.")
         return
     idx = st.selectbox("visit", list(range(len(labels))), index=len(labels) - 1,
-                       format_func=labels.__getitem__, disabled=every, key="spec_visit")
+                       format_func=labels.__getitem__, disabled=every, key=f"spec_visit|{text}")   # per target: starts at its latest visit
 
     if not st.button("measure", key="spec_run"):
         return                                  # the spectrum is only measured on a press
@@ -575,18 +571,25 @@ LIGHT_CURVE_READ = ("each dot = one measurement; dots joined by a line = the ave
 
 def light_curve_panel():
     """Brightness of the target over time at one wavelength. Both boxes start from the target's
-    cached defaults (api.defaults) and are reset when the target changes."""
+    cached defaults (api.defaults). Their keys include the target: with one fixed key, Streamlit
+    kept the box's old value when the target changed while the box was not on the page (another
+    view was open), so a new target was measured at the old target's wavelength. A new target now
+    gets new boxes that start at its own defaults."""
     text = st.session_state["target"].strip()
+    try:
+        sug = cached_defaults(text, LIVE)
+    except Exception:
+        sug = FALLBACK
     c1, c2 = st.columns(2)
     band = c1.number_input(
         "wavelength (micron)", min_value=0.75, max_value=5.0, step=0.05, format="%.2f",
-        key="band", help="The wavelength at which the target is measured. The default is the "
+        value=float(sug["band"]), key=f"band|{text}", help="The wavelength at which the target is measured. The default is the "
                          "one cached for this target.")
     # only frames within this window around the wavelength are measured; the library warns
     # above MAX_SAFE_TOL, so the box stops there (a wider window mixes wavelengths).
     tol = c2.number_input(
         "tolerance (micron)", min_value=0.005, max_value=float(api.MAX_SAFE_TOL), step=0.005,
-        format="%.3f", key="tol",
+        format="%.3f", value=float(sug["tol"]), key=f"tol|{text}",
         help=f"Only frames within ±{api.MAX_SAFE_TOL:g} micron of the wavelength are used. "
              "A wider window mixes wavelengths, which can look like variability, so this "
              "stops at the library's safe limit.")
