@@ -32,6 +32,7 @@ import matplotlib.pyplot as plt
 from astropy.time import Time
 
 warnings.simplefilter("ignore", RuntimeWarning)
+from spherex.text import plural
 from spherex import (parse_target, at_time, load_or_find_frames, assign_epochs, make_epochs,
                      difference, make_gif, shared_norm, deep_image, minus_mean, difference_series,
                      band_difference, rgb_image, spectrum, bin_to_channels, plot_spectra_visits,
@@ -118,7 +119,7 @@ def main():
     def do_deep():
         eps = epochs(det)
         dp = deep_image(eps)
-        show(dp, f"{name}  {det}  {dp['label']}\n({dp['n_frames']} frames, {dp['date']})", folder / "deep.png", target)
+        show(dp, f"{name}  {det}  {dp['label']}\n({plural(dp['n_frames'], 'frame')}, {dp['date']})", folder / "deep.png", target)
 
     def do_pair():
         eps = epochs(det)
@@ -174,7 +175,7 @@ def main():
         for e in sorted(set(frames["epoch"])):
             sub = frames[frames["epoch"] == e]
             b = bin_to_channels(spectrum(sub, target))
-            print(f"  visit {e} ({sub['date'][0][:10]}): {len(b)} channels with usable data")
+            print(f"  visit {e} ({sub['date'][0][:10]}): {plural(len(b), 'channel')} with usable data")
             per_visit.append((sub["date"][0][:10], b))
         plot_spectra_visits(per_visit, f"{name}: spectrum of every visit", folder / "spectra_visits.png")
         print("  saved", folder / "spectra_visits.png")
@@ -192,7 +193,7 @@ def main():
         ax.set_xlabel("RA"); ax.set_ylabel("Dec")
         fig.savefig(folder / "asteroids.png", bbox_inches="tight")
         plt.close(fig)
-        print(f"  {n} known solar-system objects in view; saved", folder / "asteroids.png")
+        print(f"  {plural(n, 'known solar-system object')} in view; saved", folder / "asteroids.png")
 
     for product, fn in [("deep", do_deep), ("pair", do_pair), ("series", do_series),
                         ("minusmean", do_minusmean), ("banddiff", do_banddiff), ("rgb", do_rgb),
