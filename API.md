@@ -319,6 +319,25 @@ def progress(stage, done, total):
 html = api.player_html("WISE 0855", detector="D6", progress=progress)
 ```
 
+`spherex.progress.Estimate` turns those calls into a line for a progress bar with the time left:
+the average time per item so far in the current stage times the items left, shown once at least
+2 items of the stage are done. For downloads it also counts retries and "busy" (HTTP 503)
+replies since the stage began. `update()` returns a dict with `stage`, `count` ("23 / 61"),
+`fraction` (0..1, for `st.progress`), `seconds_left`, `time_left`, `retries`, `busy` and `text`:
+
+```python
+from spherex.progress import Estimate
+
+est = Estimate()
+def progress(stage, done, total):
+    info = est.update(stage, done, total)
+    bar.progress(info["fraction"])
+    line.caption(info["text"])   # downloading images · 23 / 61 · about 2 min left · 3 retries (2 busy)
+```
+
+Cached images make the early items of "downloading images" fast, so the first estimate of a
+partly cached target is too short and grows as real downloads begin.
+
 ## Errors
 
 Bad input and missing data raise `ValueError` with a message written for users (unknown name,
