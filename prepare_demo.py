@@ -29,6 +29,7 @@ from spherex import (api, parse_detectors, parse_target, at_time, load_or_find_f
                      epoch_frames, set_style)
 
 from spherex.api import DEMO_DEFAULTS
+from spherex.text import plural
 
 # What to show for each target: the detector for pictures, the wavelength for the light curve.
 # Shared with the app (spherex.api.DEMO_DEFAULTS), so the app's defaults are what is cached.
@@ -56,7 +57,7 @@ def needed_frames(frames, cfg, all_frames):
 
 def save_flipbook_and_diff(name, target, epochs, folder):
     images = [ep["image"] for ep in epochs]
-    titles = [f"{name}  {ep['detector']}  {ep['date']}  ({ep['n_frames']} frames)" for ep in epochs]
+    titles = [f"{name}  {ep['detector']}  {ep['date']}  ({plural(ep['n_frames'], 'frame')})" for ep in epochs]
     markers = [tuple(float(v) for v in ep["wcs"].world_to_pixel(at_time(target, Time(ep["mjd"], format="mjd"))))
                for ep in epochs]
     make_gif(images, titles, folder / "flipbook.gif", fps=3, markers=markers,
@@ -118,7 +119,7 @@ def run_target(name, cfg, a, log):
     print(f"\n========== {name} ==========")
     target = parse_target(name)
     frames = assign_epochs(load_or_find_frames(name, target, refresh=a.refresh))
-    log.append(f"{name}: {len(frames)} frames, {frames['epoch'].max() + 1} visits")
+    log.append(f"{name}: {plural(len(frames), 'frame')}, {plural(frames['epoch'].max() + 1, 'visit')}")
 
     step("download cutouts", lambda: prefetch(needed_frames(frames, cfg, a.all_frames), target))
     state = {}
@@ -144,9 +145,9 @@ def run_target(name, cfg, a, log):
             note = str(e)
         curve.write(folder / "lightcurve.csv", overwrite=True)
         write_note(folder / "lightcurve_note.txt", note)
-        log.append(f"        light curve: {len(curve)} points, {int(curve['ok'].sum()) if len(curve) else 0} usable"
+        log.append(f"        light curve: {plural(len(curve), 'point')}, {int(curve['ok'].sum()) if len(curve) else 0} usable"
                    + (f"  [{note[:70]}]" if note else ""))
-    step(f"lightcurve ({cfg['band']} um)", lc)
+    step(f"light curve ({cfg['band']} um)", lc)
 
     def sp():                        # every measurement to CSV; the picture is the app's
         spec = spectrum(epoch_frames(frames, -1), target)
@@ -162,7 +163,7 @@ def run_target(name, cfg, a, log):
             (folder / "spectrum.png").unlink(missing_ok=True)
             note, n = str(e), 0
         write_note(folder / "spectrum_note.txt", note)
-        log.append(f"        spectrum: {len(spec)} points, {n} of 102 channels" + (f"  [{note[:70]}]" if note else ""))
+        log.append(f"        spectrum: {plural(len(spec), 'point')}, {n} of 102 channels" + (f"  [{note[:70]}]" if note else ""))
     step("spectrum (latest visit)", sp)
 
     def extra():                     # deep, differences, colour, spectra per visit, asteroids

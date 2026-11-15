@@ -40,6 +40,7 @@ from .plots import (plot_light_curve_simple, plot_spectrum, plot_spectra_visits,
 from .progress import report, shifted, SEARCHING, MEASURING, DRAWING
 from .spectrum import spectrum, spectrum_requests, bin_to_channels, channel_edges
 from .targets import parse_target, at_time, has_pm, known_target, known_near, target_name
+from .text import plural
 from .wise import wise_overlay
 from . import net
 from .net import set_demo_mode            # api.set_demo_mode(True): cached data only, no hangs
@@ -171,8 +172,8 @@ def _choose(eps, pictures):
         raise ValueError("Choose at least one picture.")
     bad = [i for i in idx if not 0 <= i < len(eps)]
     if bad:
-        raise ValueError(f"There are only {len(eps)} pictures with these settings (rows 0..{len(eps) - 1}); "
-                         f"{', '.join(map(str, bad))} is not one of them.")
+        raise ValueError(f"There {'is' if len(eps) == 1 else 'are'} only {plural(len(eps), 'picture')} with these settings (rows 0..{len(eps) - 1}); "
+                         f"{', '.join(map(str, bad))} {'is not one of them' if len(bad) == 1 else 'are not among them'}.")
     return idx
 
 
@@ -184,7 +185,7 @@ def _pick(eps, visit):
     try:
         return eps[visit]
     except IndexError:
-        raise ValueError(f"There are only {len(eps)} pictures (use 0..{len(eps) - 1}, or -1 for the latest).")
+        raise ValueError(f"There {'is' if len(eps) == 1 else 'are'} only {plural(len(eps), 'picture')} (use 0..{len(eps) - 1}, or -1 for the latest).")
 
 
 def _image_figure(img, wcs, title, marker=None, diverging=False, rgb=False):
@@ -329,7 +330,7 @@ def _video_frames(text, detector, fov, mode, wl, days, clip=True, pictures=None,
         for e in eps:
             e["few"] = _few(*((e, ref) if mode == "difference" else (e,)))
     elif mode == "normal":
-        titles = [_with_few(f"{text}  {label}  {e['date']}  ({e['n_frames']} frames)", e) for e in eps]
+        titles = [_with_few(f"{text}  {label}  {e['date']}  ({plural(e['n_frames'], 'frame')})", e) for e in eps]
         eps = [dict(e, few=_few(e)) for e in eps]
     else:
         raise ValueError("mode must be 'normal', 'difference' or 'minusmean'.")
@@ -426,17 +427,17 @@ def picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=
         if kind == "visit":
             ep = _pick(eps, visit)
             fig, _ = _image_figure(ep["image"], ep["wcs"], _with_few(f"{text}  {label}  {ep['date']}  "
-                                   f"({ep['n_frames']} frames)", ep), _marker(target, ep))
+                                   f"({plural(ep['n_frames'], 'frame')})", ep), _marker(target, ep))
         elif kind == "deep":
             ep = deep_image(eps)
             fig, _ = _image_figure(ep["image"], ep["wcs"], _with_few(f"{text}  {label}  {ep['label']}\n"
-                                   f"{ep['n_frames']} frames, {ep['date']}", *eps), _marker(target, eps[-1]))
+                                   f"{plural(ep['n_frames'], 'frame')}, {ep['date']}", *eps), _marker(target, eps[-1]))
         else:
             if len(eps) < 2:
-                raise ValueError("A difference needs at least 2 visits.")
+                raise ValueError("A difference needs at least 2 pictures.")
             later, earlier = sorted([_pick(eps, a), _pick(eps, b)], key=lambda e: e["mjd"], reverse=True)
             if later is earlier:
-                raise ValueError("A difference needs two different visits.")
+                raise ValueError("A difference needs two different pictures.")
             d = difference(later, earlier)
             fig, _ = _image_figure(d["image"], d["wcs"], _with_few(
                 f"{text}  {label}  later minus earlier: {d['label']}\n"
@@ -605,15 +606,15 @@ def _neighbour_warning(target, mjd):
         return None
     mags = g[near]
     parts = [f"G={g:.1f} at {d:.1f}″" for d, g in sorted(zip(sep[near], mags))]
-    text = (f"{int(near.sum())} Gaia star(s) inside the {APERTURE_ARCSEC:.0f}″ measuring circle "
-            f"({', '.join(parts)}): part of the light measured comes from them, mostly at short "
+    text = (f"{plural(int(near.sum()), 'Gaia star')} inside the {APERTURE_ARCSEC:.0f}″ measuring circle "
+            f"({', '.join(parts)}): part of the measured light comes from {'it' if near.sum() == 1 else 'them'}, mostly at short "
             "wavelengths. Treat these brightnesses as upper limits.")
     close = near & (sep < CLOSE_NEIGHBOUR_ARCSEC)
     if close.any():
         i = np.flatnonzero(close)[np.argmin(sep[close])]
         text += (f" The neighbour at {sep[i]:.1f}″ (G={g[i]:.1f}) is so close that, at wavelengths where "
-                 "the target is faint, the measured light is "
-                 "mostly this neighbour, not the target.")
+                 "the target is faint, the measured light comes "
+                 "mostly from this neighbour, not the target.")
     return text
 
 
@@ -637,7 +638,7 @@ def _wavelength_spread_note(lc):
     wl = np.asarray(lc["wavelength_um"][lc["ok"]], float)
     return (f"The usable points were measured at slightly different wavelengths ({wl.min():.3f} to "
             f"{wl.max():.3f} µm). On a steep spectrum that alone can change the flux by several percent, "
-            "so differences of that size are not necessarily a change of the source.")
+            "so differences of that size are not necessarily a change in the source.")
 
 
 def _join(*notes):
@@ -803,7 +804,7 @@ def spectrum_figure(text, visit=-1, all_visits=False, progress=None):
     try:
         sub = frames[frames["epoch"] == ids[visit]]
     except IndexError:
-        raise ValueError(f"There are only {len(ids)} visits.")
+        raise ValueError(f"There {'is' if len(ids) == 1 else 'are'} only {plural(len(ids), 'visit')}.")
     spec = spectrum(sub, target, progress=progress)
     binned = bin_to_channels(spec)
     if len(spec) == 0:
@@ -813,7 +814,7 @@ def spectrum_figure(text, visit=-1, all_visits=False, progress=None):
         binned = binned[:0]                                # a few stray channels: show the limits instead
     neighbours = _neighbours_reported(target, np.median(sub["mjd"]), progress)
     report(progress, DRAWING, 0, 1)
-    fig = plot_spectrum(spec, binned, f"{text}: spectrum, visit of {sub['date'][0][:10]}", log="auto")
+    fig = plot_spectrum(spec, binned, f"{text}: spectrum, visit starting {sub['date'][0][:10]}", log="auto")
     table = _spectrum_table(spec, binned, ids[visit])
     result = _with_warning(fig, table, _join(SATURATED_NOTE if saturated else None, neighbours))
     report(progress, DRAWING, 1, 1)
@@ -836,9 +837,9 @@ def flags_figure(text, detector="D2", visit=-1, frame=0):
     try:
         rows = mine[mine["epoch"] == ids[visit]]
     except IndexError:
-        raise ValueError(f"There are only {len(ids)} visits with {det} images.")
+        raise ValueError(f"There {'is' if len(ids) == 1 else 'are'} only {plural(len(ids), 'visit')} with {det} images.")
     if not 0 <= frame < len(rows):
-        raise ValueError(f"That visit has {len(rows)} {det} exposures (use 0..{len(rows) - 1}).")
+        raise ValueError(f"That visit has {len(rows)} {det} {'exposure' if len(rows) == 1 else 'exposures'} (use 0..{len(rows) - 1}).")
     for row in list(rows[frame:]) + list(rows[:frame]):
         pos = at_time(target, Time(row["mjd"], format="mjd"))
         try:

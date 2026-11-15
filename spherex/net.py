@@ -8,6 +8,7 @@ from urllib.error import HTTPError
 from astropy.utils.data import conf
 
 from .progress import note_failed_try
+from .text import plural
 
 # Where downloads and saved tables live: <project>/cache, whatever folder Python was started from.
 # Set SPHEREX_CACHE=/some/folder to use another one.
@@ -59,7 +60,7 @@ def with_retries(fn, *args, tries=5, **kwargs):
             err = f"{type(e).__name__}: {str(e)[:70]}"
         note_failed_try(err, retrying=attempt < tries - 1)   # counts for the progress line
         if attempt == tries - 1:
-            raise OSError(f"{getattr(fn, '__name__', 'call')} gave up after {tries} tries ({err})")
+            raise OSError(f"{getattr(fn, '__name__', 'call')} gave up after {plural(tries, 'try', 'tries')} ({err})")
         wait = min(5 * 2 ** attempt, 60)
         print(f"    {getattr(fn, '__name__', 'call')}: {err} -> retry in {wait}s")
         time.sleep(wait)

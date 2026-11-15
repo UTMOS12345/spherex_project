@@ -34,6 +34,7 @@ from spherex.download import find_cached, prefetch
 from spherex.epochs import assign_epochs
 from spherex.frames import table_path
 from spherex.targets import parse_target, at_time
+from spherex.text import plural
 
 OUT = Path(os.environ.get("SPHEREX_DEMO_DIR", "demo"))
 FOV = 4.0                    # arcmin, as prepare_demo.py
@@ -197,7 +198,7 @@ def run_target(name, cfg, download):
             elif cached < total:
                 status = "PARTIAL"
                 warning = (f"Made from the {cached} of {total} images in cache/; the other {total - cached} "
-                           f"are at IRSA (python make_gallery.py --download --only \"{name}\"). " + warning)
+                           f"{'is' if total - cached == 1 else 'are'} at IRSA (python make_gallery.py --download --only \"{name}\"). " + warning)
             else:
                 status = "READY"
             if saturated and file in SATURATION_SENSITIVE:

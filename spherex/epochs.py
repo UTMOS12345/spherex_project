@@ -14,6 +14,7 @@ from .download import get_cutouts
 from . import photometry as _phot
 from .progress import report, CLEANING, STACKING
 from .targets import at_time
+from .text import plural
 
 CLIP_SIGMA = 4.0          # stacking: a frame's pixel this far from the other frames is dropped
 CLIP_MIN_FRAMES = 4       # ... only where at least this many frames cover the pixel
@@ -165,11 +166,11 @@ def parse_detectors(detector):
         if not p:
             continue
         if not p.isdigit() or not 1 <= int(p) <= 6:
-            raise ValueError(f"unknown detector {p!r}: use D1..D6, combinations like D5+D6, or 'all'")
+            raise ValueError(f"Unknown detector {p!r}: use D1..D6, combinations like D5+D6, or 'all'.")
         if f"D{int(p)}" not in out:
             out.append(f"D{int(p)}")
     if not out:
-        raise ValueError("no detector given")
+        raise ValueError("No detector given.")
     return sorted(out)
 
 
@@ -204,13 +205,13 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
         wl_range = (float(min(wl_range)), float(max(wl_range)))
     if detector is None:
         if wl_range is None:
-            raise ValueError("give a detector, or a wavelength range")
+            raise ValueError("Give a detector or a wavelength range.")
         lo = np.asarray(frames["em_min"], float) * 1e6
         hi = np.asarray(frames["em_max"], float) * 1e6
         covering = (lo <= wl_range[1]) & (hi >= wl_range[0])
         dets = sorted(set(str(d) for d in frames["detector"][covering]))
         if not dets:
-            raise ValueError(f"no detector covers {wl_range[0]}-{wl_range[1]} micron")
+            raise ValueError(f"No detector covers {wl_range[0]}-{wl_range[1]} micron.")
     else:
         dets = parse_detectors(detector)
     det = "+".join(dets) if wl_range is None else f"{wl_range[0]:g}-{wl_range[1]:g}um"
@@ -283,7 +284,7 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
                 n_mins.append(stats["n_min"]); n_vals += stats["n_values"]; n_rej += stats["n_rejected"]
         aligned[i_ep] = None                              # free the aligned frames of this epoch
         for reason, count in skipped.items():
-            print(f"  epoch {e}: skipped {count} frame(s): {reason}")
+            print(f"  epoch {e}: skipped {plural(count, 'frame')}: {reason}")
         if not stacks or all(np.isnan(x).all() for x in stacks):
             report(progress, STACKING, i_ep + 1, len(aligned))
             continue

@@ -17,6 +17,8 @@ Estimate turns those calls into a line for a progress bar, with the time left:
 import threading
 import time
 
+from .text import plural
+
 SEARCHING = "searching the archive"
 DOWNLOADING = "downloading images"
 CLEANING = "cleaning and aligning"
@@ -124,7 +126,7 @@ class Estimate:
         if seconds is not None and done < total:
             parts.append(time_left_text(seconds))
         if retries or busy:
-            parts.append(f"{retries} {'retry' if retries == 1 else 'retries'}" + (f" ({busy} busy)" if busy else ""))
+            parts.append(f"{plural(retries, 'retry', 'retries')}" + (f" ({busy} busy)" if busy else ""))
         return {"stage": stage, "done": done, "total": total, "count": f"{done} / {total}",
                 "fraction": min(max(done / total, 0.0), 1.0) if total else 0.0,
                 "seconds_left": seconds, "time_left": time_left_text(seconds) if done < total else "",

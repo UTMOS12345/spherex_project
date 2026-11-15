@@ -9,6 +9,7 @@ import numpy as np
 from astropy.visualization import ZScaleInterval, AsinhStretch
 
 from .diff import difference
+from .text import plural
 
 
 def _mean(images):
@@ -24,7 +25,7 @@ def deep_image(epochs):
     ep["image"] = _mean([e["image"] for e in epochs])
     ep["n_frames"] = sum(e["n_frames"] for e in epochs)
     ep["date"] = f"{epochs[0]['date']} to {epochs[-1]['date']}"
-    ep["label"] = f"all {len(epochs)} visits added"
+    ep["label"] = f"{'all ' if len(epochs) > 1 else ''}{plural(len(epochs), 'visit')} added"
     return ep
 
 
