@@ -205,7 +205,7 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30, span_mjd=None)
         ax.annotate(f"no usable data\n({reason})", (d, 0), xytext=(0, 8), textcoords="offset points",
                     ha="center", va="bottom", fontsize=9, color=MUTED)
         ax.plot([d], [0], marker="x", color=THEME["flag"], ms=9, mew=2, clip_on=False)
-    ax.set_ylabel("brightness (mJy)")
+    ax.set_xlabel("date (UTC)"); ax.set_ylabel("brightness (mJy)")
     ax.set_title(title, loc="left", fontsize=12, fontweight="bold")
     if dates or limits:
         ax.legend(loc="upper left", fontsize=9, labelcolor=MUTED)
