@@ -1,8 +1,9 @@
 # Dark theme for the app; the colours match set_style(dark=True) in spherex/plots.py,
 # so the Streamlit page and the matplotlib figures look the same.
+# primaryColor is the one accent: a calm blue that keeps white text readable on it.
 [theme]
 base = "dark"
-primaryColor = "#3987e5"
+primaryColor = "#35719a"
 backgroundColor = "#1a1a19"
 secondaryBackgroundColor = "#232321"
 textColor = "#f0efec"
