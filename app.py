@@ -21,6 +21,7 @@ from spherex import api, set_style
 from spherex.progress import Estimate
 
 TARGETS = ["Barnard's Star", "Epsilon Indi B", "WISE 0855", "RW Aur", "R Draconis"]
+REPO_URL = "REPO_URL"                       # placeholder: replace with the repository link
 VIEWS = ["video", "compare", "overlays", "light curve", "spectrum", "data", "about"]
 MODES = ["normal", "difference", "minusmean"]
 STEPS = list(api.TIME_STEPS)                # "per visit", "monthly", "weekly", "every frame"
@@ -38,7 +39,54 @@ st.markdown(
     """
     <style>
     [data-testid="stHeader"], [data-testid="stToolbar"], #MainMenu, footer {visibility: hidden;}
-    .block-container {max-width: 760px; padding-top: 1.5rem;}
+    .block-container {max-width: 760px; padding-top: 1.6rem; padding-bottom: 3rem;}
+
+    /* one accent (see .streamlit/config.toml): calm blue for fills, a lighter tint for text */
+    :root { --accent-ink: #a8cfe6; --line: #383835; --grey: #c2c1bb; }
+
+    h1 {font-size: 2rem; letter-spacing: -0.01em; margin-bottom: 0.15rem;}
+    .lede {color: var(--grey); font-size: 0.98rem; line-height: 1.5; margin: 0 0 1.1rem;}
+
+    /* readable grey for every caption, including the "how to read it" lines */
+    [data-testid="stCaptionContainer"] p {color: var(--grey) !important; opacity: 1 !important;
+      font-size: 0.86rem; line-height: 1.5;}
+
+    /* the view selector as a navigation bar, with a clear active state */
+    [data-testid="stButtonGroup"] {margin: 0.15rem 0 0.9rem;}
+    [data-testid="stButtonGroup"] [role="radiogroup"] {display: flex; flex-wrap: wrap; gap: 4px;
+      width: 100%; padding: 4px; border: 1px solid var(--line); border-radius: 8px;
+      background: #232321;}
+    [data-testid="stButtonGroup"] button[data-variant="segmented_control"] {flex: 1 1 auto;
+      justify-content: center; border: 1px solid transparent; border-radius: 5px;
+      padding: 5px 12px; color: #b9b8b2;}
+    [data-testid="stButtonGroup"] button[data-variant="segmented_control"]:hover {color: #f0efec;}
+    [data-testid="stButtonGroup"] button[data-variant="segmented_control"][data-selected="true"] {
+      background: rgba(53, 113, 154, 0.24); border-color: rgba(120, 176, 210, 0.55);
+      color: var(--accent-ink);}
+
+    /* a little more room around the controls and the pictures */
+    [data-testid="stSlider"], [data-testid="stSelectbox"], [data-testid="stRadio"],
+    [data-testid="stCheckbox"], [data-testid="stToggle"] {margin-top: 0.15rem;}
+    [data-testid="stImage"], [data-testid="stPyplot"] {margin: 0.35rem 0 0.25rem;}
+    [data-testid="stImage"] img {max-width: 100%; height: auto;}
+    [data-testid="stVerticalBlockBorderWrapper"] {border-radius: 8px;}
+
+    .app-footer {margin-top: 2.2rem; padding-top: 0.9rem; border-top: 1px solid var(--line);
+      color: #9d9c96; font-size: 0.8rem; line-height: 1.6;}
+    .app-footer a {color: var(--accent-ink); text-decoration: none;}
+    .app-footer a:hover {text-decoration: underline;}
+
+    /* phones: keep everything inside the screen */
+    @media (max-width: 480px) {
+      .block-container {padding-left: 0.85rem !important; padding-right: 0.85rem !important;
+        padding-top: 1.1rem !important;}
+      h1 {font-size: 1.6rem;}
+      .lede {font-size: 0.92rem;}
+      [data-testid="stButtonGroup"] button[data-variant="segmented_control"] {font-size: 0.8rem;
+        padding: 5px 7px;}
+      [data-testid="stCaptionContainer"] p {font-size: 0.82rem;}
+      [data-testid="stImage"] img, iframe {max-width: 100% !important;}
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -275,6 +323,41 @@ EVERY_FRAME_NOTE = ("single exposures: brightness flickers because each frame se
                     "different wavelength; fast movers such as asteroids show here and not in "
                     "stacked pictures.")
 
+# One grey line at the top of each view: what it does and what to try.
+VIEW_INTRO = {
+    "video": "the flipbook: the same patch of sky, one picture per visit or time step, played in "
+             "order. try play, the arrows, or difference mode to see what changed between visits.",
+    "compare": "single pictures of the same patch: all visits added, later minus earlier, one "
+               "detector minus another, and three detectors as a colour picture. use the pickers "
+               "to change which visits are compared.",
+    "overlays": "the picture with catalogue stars drawn on top: Gaia positions and motions, "
+                "CatWISE sources, and the target's predicted position. untick a catalogue to see "
+                "which markers it adds.",
+    "light curve": "the target's brightness over time at one wavelength. press measure; a smaller "
+                   "tolerance compares light of nearly the same colour only.",
+    "spectrum": "the brightness at every wavelength in one visit, so the object's colour can be "
+                "read off. press measure; tick every visit to compare the shapes.",
+    "data": "the visits table, one exposure with its flagged pixels, and a check for new data. the "
+            "table shows which detectors have frames in each visit.",
+    "about": "what the tool shows, how to read the pictures, what they cannot show, and a "
+             "glossary. start here if a word or a picture is unclear.",
+}
+
+# Under every picture whose axes are RA and Dec (the library draws them on a north-up sky grid).
+AXES_LINE = ("the picture is a small patch of sky. the horizontal axis is RA (right ascension) and "
+             "the vertical axis is Dec (declination): the sky's version of longitude and latitude. "
+             "north is up and east is to the left, so RA numbers get smaller to the right.")
+
+
+def intro(view):
+    """The grey line at the top of a view (appearance only: it calls nothing)."""
+    st.caption(VIEW_INTRO[view])
+
+
+def axes_note():
+    """The grey line under a picture whose axes are RA and Dec."""
+    st.caption(AXES_LINE)
+
 
 # ------------------------------------------------------------------ state
 def first_setup():
@@ -344,16 +427,23 @@ READ_PLAYER = {
 
 
 def video_panel():
-    mode = st.radio("mode", MODES, horizontal=True, key="mode")
-    c1, c2 = st.columns([3, 2])
-    fps = c1.slider("pictures per second", 1, 8, 3, key="fps")
-    step = c2.selectbox("time step", STEPS, index=STEPS.index(step_label(st.session_state["days"])),
-                        key="step", help="How long one picture may cover: one per visit, per month, "
-                                         "per week, or every single frame.")
-    st.session_state["days"] = api.TIME_STEPS[step]
-    real_time = st.checkbox("real time gaps", key="real_time",
-                            help="Each picture stays on screen longer when the time to the next "
-                                 "picture is longer (up to 6 times).")
+    # the player controls sit in one group, so they read as a control bar
+    with st.container(border=True):
+        mode = st.radio("mode", MODES, horizontal=True, key="mode")
+        c1, c2 = st.columns([3, 2])
+        fps = c1.slider("pictures per second", 1, 8, 3, key="fps",
+                        help="Playback speed only: it changes nothing in the pictures "
+                             "themselves.")
+        step = c2.selectbox("time step", STEPS,
+                            index=STEPS.index(step_label(st.session_state["days"])),
+                            key="step", help="How long one picture may cover: one per visit, "
+                                             "per month, per week, or every single frame. Single "
+                                             "frames show fast movers such as asteroids, but "
+                                             "brightness flickers.")
+        st.session_state["days"] = api.TIME_STEPS[step]
+        real_time = st.checkbox("real time gaps", key="real_time",
+                                help="Each picture stays on screen longer when the time to the "
+                                     "next picture is longer (up to 6 times).")
     text = st.session_state["target"].strip()
     detector = st.session_state["detector"].strip() or None
     wl = st.session_state["wl"].strip() or None
@@ -426,6 +516,7 @@ def overlays_panel():
         st.warning(f"{api.FEW_FRAMES_NOTE}: this picture rests on fewer than 4 frames under "
                    "the centre, so one bad frame can survive in it.")
     st.caption(overlay_caption(gaia, wise, asteroids and LIVE))
+    axes_note()
     if "verdict" in notes:             # only when both catalogues were asked for
         st.info(notes["verdict"])
     for failed in notes["failed"]:     # one warning per catalogue that could not be reached
@@ -559,6 +650,7 @@ def compare_panel():
                    + " on fewer than 4 frames under the centre, so one bad frame can survive "
                      "in the deep picture.")
     st.caption(COMPARE_READ_DEEP)
+    axes_note()
 
     # pair: rows of api.epochs are the a and b of picture(kind="pair"); the api draws the later
     # visit minus the earlier one whichever order they are picked in
@@ -579,6 +671,7 @@ def compare_panel():
             st.warning(f"{api.FEW_FRAMES_NOTE}: one of the two pictures rests on fewer than 4 "
                        "frames under the centre, so one bad frame can survive in the difference.")
         st.caption(COMPARE_READ_PAIR)
+        axes_note()
 
     # band difference and colour picture: each needs several detectors. Only detectors with
     # frames for this target are offered; the first choices are the ones the demo pictures were
@@ -612,6 +705,7 @@ def compare_panel():
                     st.caption(f"band difference: red = brighter in {long_det}, blue = brighter "
                                f"in scaled {short_det} (normal stars cancel); the green circle "
                                "is where the target should be.")
+                    axes_note()
 
     if len(dets) < 3:
         st.caption("a colour picture needs three detectors.")
@@ -635,6 +729,7 @@ def compare_panel():
                     show(fig)
                     st.caption(f"colour picture: red = {red}, green = {green}, blue = {blue}; "
                                "the green circle is where the target should be.")
+                    axes_note()
 
 
 FLAGS_READ = ("left = the exposure as observed, right = the cleaned picture with masked pixels in "
@@ -710,6 +805,50 @@ ABOUT_LIMITS = [
 ]
 
 
+GLOSSARY = [
+    ("RA and Dec", "right ascension and declination: the sky's longitude and latitude. RA runs "
+                   "from 0 to 24 hours and is read in hours, minutes and seconds; Dec runs from "
+                   "−90 to +90 degrees and is read in degrees and arcminutes. north is up in the "
+                   "pictures and east is to the left, so RA numbers get smaller to the right."),
+    ("arcminute and arcsecond", "parts of a degree: one arcminute is 1/60 of a degree and one "
+                                "arcsecond is 1/60 of an arcminute. the field of view here is a "
+                                "few arcminutes across."),
+    ("pixel size", "SPHEREx's own pixels cover about 6 arcseconds of sky (6.15). the pictures "
+                   "here are resampled onto a 3 arcsecond grid, so in them a star moving about 3 "
+                   "arcseconds shifts by one pixel."),
+    ("proper motion", "the slow drift of a star across the sky, in milliarcseconds per year "
+                      "(mas/yr). Barnard's Star moves about 10 arcseconds a year, one of the "
+                      "fastest stars known."),
+    ("wavelength (micron)", "the colour of infrared light, in micrometres (micron). SPHEREx "
+                            "measures from about 0.75 to 5 microns, mostly beyond the red the eye "
+                            "can see."),
+    ("detector D1 to D6", "SPHEREx has six detector arrays, and each one covers a different part "
+                          "of the wavelength range (D5 and D6 together, for example, span 3.8 to "
+                          "5 microns). the same star can look different in different detectors."),
+    ("visit", "one pass over this patch of sky: a stretch of frames taken minutes apart. SPHEREx "
+              "returns about every six months, so a target has a few visits."),
+    ("frame and stack", "a frame is one exposure. a picture here is usually a stack: many frames "
+                        "of the same visit added together to reduce noise."),
+    ("deep picture", "all visits added together: the faintest, cleanest view of the patch."),
+    ("difference", "the earlier picture is subtracted from the later one, so things that did not "
+                   "change cancel out. red means brighter later, blue means brighter earlier, so a "
+                   "moving object shows as a red and blue pair."),
+    ("saturated", "too bright for the detector, so the centre is clipped and its brightness is "
+                  "only a lower limit (drawn as grey triangles)."),
+    ("Gaia", "a star catalogue with very precise positions and motions (Gaia DR3). the circles "
+             "and arrows in the overlays come from it."),
+    ("CatWISE2020", "a catalogue of infrared sources from the WISE telescope. the squares in the "
+                    "overlays come from it."),
+    ("light curve", "brightness of the target over time at one wavelength."),
+    ("spectrum", "brightness across wavelengths for one visit: it shows how the object's colour is "
+                 "made up."),
+    ("flux (mJy)", "flux, in millijansky (mJy), a standard unit for the brightness of astronomical "
+                   "sources. the plots label the vertical axis in mJy."),
+    ("raw average", "keeps every frame, so fast movers and flares survive, but single-frame "
+                    "defects stay too."),
+]
+
+
 def about_panel():
     """Plain words about the mission, the pictures and what they cannot show. No api call, so
     nothing here needs the lock, the spinner or an error message."""
@@ -741,14 +880,20 @@ def about_panel():
         "infrared catalogue stars: CatWISE2020.\n\n"
         "names, distances and cross-identifications: SIMBAD (CDS, Strasbourg)."
     )
+    with st.expander("glossary"):
+        st.markdown("\n\n".join(f"**{term}**: {text}" for term, text in GLOSSARY))
 
 
 # ------------------------------------------------------------------ page
 first_setup()
 st.title("SPHEREx Flipbook")
+st.markdown('<p class="lede">enter a name or coordinates to see how a patch of sky changes '
+            'in SPHEREx images.</p>', unsafe_allow_html=True)
 
 st.text_input("target (name or coordinates)", key="target",
-              placeholder="Barnard's Star, WISE 0855, 133.795 -7.245")
+              placeholder="Barnard's Star, WISE 0855, 133.795 -7.245",
+              help="A name, or coordinates like 133.795 -7.245 (degrees) or "
+                   "08h55m10.8s -07d14m42.5s. The five buttons below are the test targets.")
 
 cols = st.columns(len(TARGETS))
 for col, name in zip(cols, TARGETS):
@@ -759,9 +904,15 @@ refresh_defaults()                  # before the detector box, so its state is a
 
 with st.expander("options"):
     st.text_input("detector(s): D1 to D6, D5+D6, or all", key="detector",
-                  help="The default is the detector that is already cached for this target.")
-    st.text_input("wavelength range in micron, for example 4.4-4.7 (optional)", key="wl")
-    st.slider("field of view in arcmin", 2.0, float(api.MAX_FOV), step=0.5, key="fov")
+                  help="D1 to D6, a sum like D5+D6, or all. The default is the detector that is "
+                       "already cached for this target. Each detector covers a different part of "
+                       "the 0.75 to 5 micron range, so the same star can look different in each.")
+    st.text_input("wavelength range in micron, for example 4.4-4.7 (optional)", key="wl",
+                  help="Only light in this range is used, between 0.75 and 5 micron. Leave it "
+                       "empty to use the detector box.")
+    st.slider("field of view in arcmin", 2.0, float(api.MAX_FOV), step=0.5, key="fov",
+              help="Width of the picture in arcminutes (one arcminute is 1/60 of a degree). "
+                   "The default is 4.")
     st.toggle("raw average (clip=False)", key="raw",
               help="Plain average of the frames instead of the clipped mean: keeps fast movers "
                    "and short flares, but also single-frame defects. It does not affect the "
@@ -774,29 +925,32 @@ else:
     st.caption("demo mode: only images already in cache/ are shown. Add ?live=1 to the URL "
                "to allow downloads.")
 
-if not st.session_state["target"].strip():
-    st.warning("enter a target name or coordinates.")
-    st.stop()
-if not guarded(header):             # unknown target: one message, no view underneath
-    st.stop()
-
 view = st.segmented_control("view", VIEWS, key="view", label_visibility="collapsed",
                             selection_mode="single") or "video"
 
-if view == "video":
-    guarded(video_panel)
-elif view == "compare":
-    guarded(compare_panel)
-elif view == "overlays":
-    guarded(overlays_panel)
-elif view == "spectrum":
-    guarded(spectrum_panel)
-elif view == "light curve":
-    guarded(light_curve_panel)
-elif view == "about":
-    about_panel()                           # no api call, so nothing to guard
-elif view == "data":
-    guarded(data_panel)
+if view == "about":
+    intro("about")
+    about_panel()                       # no api call: works before a target resolves
+else:
+    if not st.session_state["target"].strip():
+        st.warning("enter a target name or coordinates.")
+        st.stop()
+    if not guarded(header):             # unknown target: one message, no view underneath
+        st.stop()
+
+    intro(view)                         # one grey line: what this view does, what to try
+    if view == "video":
+        guarded(video_panel)
+    elif view == "compare":
+        guarded(compare_panel)
+    elif view == "overlays":
+        guarded(overlays_panel)
+    elif view == "spectrum":
+        guarded(spectrum_panel)
+    elif view == "light curve":
+        guarded(light_curve_panel)
+    elif view == "data":
+        guarded(data_panel)
 
 # keep the link shareable; ?live=1 is left alone because it is not ours
 st.query_params.update(
@@ -809,4 +963,10 @@ st.query_params.update(
     clip="0" if st.session_state["raw"] else "1",
     days=str(st.session_state.get("days", 60)),
     rt="1" if st.session_state.get("real_time") else "0",
+)
+
+st.markdown(
+    '<div class="app-footer">SPHEREx / IRSA, Gaia DR3, CatWISE2020, SIMBAD'
+    f' &nbsp;·&nbsp; <a href="{REPO_URL}" target="_blank" rel="noopener">{REPO_URL}</a></div>',
+    unsafe_allow_html=True,
 )
