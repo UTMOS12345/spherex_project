@@ -25,6 +25,7 @@ from astropy.utils.data import download_file
 
 from . import net
 from .net import with_retries, CACHE_ROOT
+from .progress import report, DOWNLOADING
 from .targets import at_time
 
 CACHE_DIR = CACHE_ROOT / "cutouts"
@@ -215,11 +216,29 @@ def get_cutout(url, center, size_deg=0.1, tries=6):
     return result
 
 
-def prefetch(frames, target, size_deg=0.1, limit=None):
+def get_cutouts(requests, progress=None):
+    """Many cutouts, in order: [(url, center, size_deg), ...] -> list with, per request, the
+    local path, or the OSError that get_cutout raised for it (the caller decides whether to skip).
+    progress(stage, done, total) gets "downloading images" before the first and after each one
+    (cached files count too)."""
+    out = []
+    report(progress, DOWNLOADING, 0, len(requests))
+    for i, (url, center, size_deg) in enumerate(requests):
+        try:
+            out.append(get_cutout(url, center, size_deg))
+        except OSError as e:
+            out.append(e)
+        report(progress, DOWNLOADING, i + 1, len(requests))
+    return out
+
+
+def prefetch(frames, target, size_deg=0.1, limit=None, progress=None):
     """Download cutouts for many frames, centred on the target's position on each date.
-    Safe to stop and re-run: cached files are skipped. Returns (cached, downloaded, failed)."""
+    Safe to stop and re-run: cached files are skipped. Returns (cached, downloaded, failed).
+    progress: optional callback, see spherex.progress ("downloading images" per frame)."""
     hit = new = fail = 0
     rows = frames if limit is None else frames[:limit]
+    report(progress, DOWNLOADING, 0, len(rows))
     for i, row in enumerate(rows):
         center = at_time(target, Time(row["mjd"], format="mjd"))
         cached = find_cached(row["access_url"], center, size_deg) is not None
@@ -232,6 +251,7 @@ def prefetch(frames, target, size_deg=0.1, limit=None):
         except OSError as e:
             fail += 1
             print(f"[{i + 1}/{len(rows)}] FAILED {row['obs_id']} {row['detector']}: {e}")
+        report(progress, DOWNLOADING, i + 1, len(rows))
     print(f"\n{hit} cached, {new} downloaded, {fail} failed")
     return hit, new, fail
 

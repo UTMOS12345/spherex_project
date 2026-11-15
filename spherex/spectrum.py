@@ -3,9 +3,10 @@ import numpy as np
 from astropy.table import Table, vstack
 from astropy.time import Time
 
-from .download import get_cutout
+from .download import get_cutouts
 from .epochs import assign_epochs
 from .photometry import measure_frame, release_name
+from .progress import report, MEASURING
 from .targets import at_time
 
 # SPHEREx's six detectors; each is split into 17 channels -> 6 x 17 = 102 channels.
@@ -20,23 +21,43 @@ def channel_edges():
     return {d: np.geomspace(lo, hi, CHANNELS_PER_BAND + 1) for d, (lo, hi) in BANDS_UM.items()}
 
 
-def spectrum(frames_of_epoch, target, r_px=2.0, size_deg=0.1):
+MEASURE_DEG = 0.1         # cutout size the measurements ask for (served from any bigger cached file)
+
+
+def spectrum_requests(frames, target, size_deg=MEASURE_DEG):
+    """The get_cutouts requests spectrum() makes for these frames, in the same order."""
+    return [(row["access_url"], at_time(target, Time(row["mjd"], format="mjd")), size_deg) for row in frames]
+
+
+def spectrum(frames_of_epoch, target, r_px=2.0, size_deg=MEASURE_DEG, progress=None, paths=None):
     """Frames of ONE visit (all detectors) + target SkyCoord -> Table sorted by wavelength:
     wavelength_um, flux_mjy, err_mjy, flux_min_mjy (lower limit, saturated only), detector, mjd,
     n_bad, saturated, bad_flags, ok, release ('DR1', 'QR3', ...).
     Every frame sees the target at its own wavelength (the colour depends on where the
-    star lands on the detector), so the frames of one visit together cover 0.75-5 micron."""
+    star lands on the detector), so the frames of one visit together cover 0.75-5 micron.
+    progress: optional callback (spherex.progress): "downloading images", then "measuring".
+    paths: the get_cutouts result for spectrum_requests(frames_of_epoch, ...), when the caller
+    has already fetched them (then nothing is downloaded and only "measuring" is reported)."""
+    requests = spectrum_requests(frames_of_epoch, target, size_deg)
+    positions = [pos for _, pos, _ in requests]
+    if paths is None:
+        paths = get_cutouts(requests, progress)
+    n = len(frames_of_epoch)
     rows = []
-    for row in frames_of_epoch:
-        pos = at_time(target, Time(row["mjd"], format="mjd"))
+    report(progress, MEASURING, 0, n)
+    for i, (row, pos, path) in enumerate(zip(frames_of_epoch, positions, paths)):
         try:
-            m = measure_frame(get_cutout(row["access_url"], pos, size_deg), pos, r_px)
+            if isinstance(path, OSError):
+                raise path
+            m = measure_frame(path, pos, r_px)
         except OSError as e:
             print(f"  skipped {row['obs_id']} {row['detector']}: {e}")
+            report(progress, MEASURING, i + 1, n)
             continue
         if np.isfinite(m["wavelength_um"]):
             m["release"] = release_name(row["collection"]) if "collection" in frames_of_epoch.colnames else ""
             rows.append(m)
+        report(progress, MEASURING, i + 1, n)
     names = ["wavelength_um", "flux_mjy", "err_mjy", "flux_min_mjy", "detector", "mjd", "n_bad", "saturated",
              "bad_flags", "ok", "release"]
     if not rows:

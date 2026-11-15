@@ -110,13 +110,13 @@ are not affected.
 |---|---|---|
 | Search box | `api.resolve(text)` | dict: `name`, `ra`, `dec` (degrees, catalogue position), `ra_hms`, `dec_dms`, `has_motion`, `pm_ra`, `pm_dec` (mas/yr), `known` (True for the five test targets, by name, alias or coordinates) |
 | Visits | `api.visits(text, refresh=False, detector=None, fov=4.0, clip=True)` | table: `visit`, `first_date`, `last_date`, `n_frames`, `D1`..`D6` (frames per detector), `releases`; with `detector`, also `n_min` and `clipped_fraction` of that detector's stacks (this stacks the visits if needed) |
-| Pictures index | `api.epochs(text, detector=None, fov=4.0, wl=None, days=60, clip=True, pictures=None)` | table, one row per picture the other functions build for these settings, in their order: `index`, `visit` (the `api.visits` number most of its frames belong to), `date` (as in the titles; with time for `days=0`), `first_date`, `last_date` (of the frames used), `n_frames`, `n_min`, `clipped_fraction`, `few_frames`, `detectors_used`, `releases`; `meta`: `n_pictures`, `n_frames_total`, `n_few_frames` |
-| Video (GIF) | `api.flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, timeline=True, clip=True, pictures=None)` | GIF bytes |
-| Video (player) | `api.player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, width=700, clip=True, pictures=None, real_time=False, max_hold=6, show_real_time_toggle=True)` | HTML string: the same pictures with play/pause, step, a slider and a "real time gaps" checkbox (hidden with `show_real_time_toggle=False`) (`streamlit.components.v1.html(html, height=...)`) |
-| Pictures | `api.picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=None, long="D6", short="D2", rgb="D6,D3,D1", clip=True, days=60)` | figure |
-| Overlays | `api.overlay_figure(text, detector="D2", fov=4.0, visit=-1, gaia=True, wise=True, asteroids=False, min_pm=50, arrow_years=5, days=60)` | (figure, notes dict) |
-| Light curve | `api.light_curve_figure(text, band=1.6, tol=0.02)` | (figure, table) |
-| Spectrum | `api.spectrum_figure(text, visit=-1, all_visits=False)` | (figure, table) |
+| Pictures index | `api.epochs(text, detector=None, fov=4.0, wl=None, days=60, clip=True, pictures=None, progress=None)` | table, one row per picture the other functions build for these settings, in their order: `index`, `visit` (the `api.visits` number most of its frames belong to), `date` (as in the titles; with time for `days=0`), `first_date`, `last_date` (of the frames used), `n_frames`, `n_min`, `clipped_fraction`, `few_frames`, `detectors_used`, `releases`; `meta`: `n_pictures`, `n_frames_total`, `n_few_frames` |
+| Video (GIF) | `api.flipbook(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, timeline=True, clip=True, pictures=None, progress=None)` | GIF bytes |
+| Video (player) | `api.player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, days=60, width=700, clip=True, pictures=None, real_time=False, max_hold=6, show_real_time_toggle=True, progress=None)` | HTML string: the same pictures with play/pause, step, a slider and a "real time gaps" checkbox (hidden with `show_real_time_toggle=False`) (`streamlit.components.v1.html(html, height=...)`) |
+| Pictures | `api.picture(text, kind="visit", detector="D2", fov=4.0, visit=-1, a=-1, b=0, wl=None, long="D6", short="D2", rgb="D6,D3,D1", clip=True, days=60, progress=None)` | figure |
+| Overlays | `api.overlay_figure(text, detector="D2", fov=4.0, visit=-1, gaia=True, wise=True, asteroids=False, min_pm=50, arrow_years=5, days=60, progress=None)` | (figure, notes dict) |
+| Light curve | `api.light_curve_figure(text, band=1.6, tol=0.02, progress=None)` | (figure, table) |
+| Spectrum | `api.spectrum_figure(text, visit=-1, all_visits=False, progress=None)` | (figure, table) |
 | Flags | `api.flags_figure(text, detector="D2", visit=-1, frame=0)` | (figure, table) |
 
 Show a figure with `st.pyplot(fig)` and then `plt.close(fig)`; a table with
@@ -285,6 +285,39 @@ can be joined into one text:
   brightnesses are upper limits. A neighbour within 8″ is named as the main source of the light
   at wavelengths where the target is faint (both functions; skipped silently if Gaia cannot be
   reached).
+
+## Progress
+
+The slow functions (`player_html`, `flipbook`, `picture`, `epochs`, `overlay_figure`,
+`light_curve_figure`, `spectrum_figure`) take `progress=None`: an optional callable
+`progress(stage, done, total)` that is told how far the work has got, so the app can show a
+progress bar while a new target downloads.
+
+- `stage` is short plain text, one of `spherex.progress.STAGES`: `"searching the archive"`,
+  `"downloading images"`, `"cleaning and aligning"`, `"stacking visits"`, `"measuring"`,
+  `"drawing"`.
+- It is called with `done=0` when a stage starts and again after each item (`done` = items
+  finished, `total` = items in the stage). Cached images count as items too, so a cached target
+  runs through the same stages in seconds.
+- Stages that have nothing to do are skipped: a frame list already in `cache/frames` is not
+  searched, and stacks already in memory report nothing at all (the call returns at once).
+- Order: video and pictures: searching (new targets), downloading images, cleaning and aligning,
+  stacking visits, drawing. `picture(kind="banddiff" | "rgb")` runs the stacking stages once per
+  detector. Overlays: the stacking stages, then searching the archive once per catalogue, then
+  drawing. Light curve and spectrum: searching (new targets), downloading images, measuring,
+  searching the archive (Gaia neighbours), drawing. `spectrum_figure(all_visits=True)`
+  downloads every visit's images in one pass and counts "measuring" over all of them.
+- The callback runs in the caller's thread, between items. Anything it raises is caught and
+  ignored, and results are identical with and without it.
+- The lower-level functions take the same argument: `make_epochs`, `stack_epoch`, `prefetch`,
+  `download.get_cutouts`, `light_curve`, `spectrum`, `frames.find_frames`.
+
+```python
+def progress(stage, done, total):
+    print(f"{stage}: {done} / {total}")
+
+html = api.player_html("WISE 0855", detector="D6", progress=progress)
+```
 
 ## Errors
 
