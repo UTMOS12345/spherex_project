@@ -1,7 +1,8 @@
 r"""SPHEREx Flipbook: the Streamlit frontend for the spherex data library.
 
 Built so far: page skeleton, target search with its options, the video view (interactive
-player + gif export), the overlays view and the spectrum view.
+player + gif export), the overlays view, the spectrum view, the light curve view, the about
+view, the compare view (deep, pair, band difference, colour) and the data view.
 
     $env:SPHEREX_DEMO="1"; .venv\Scripts\python.exe -m streamlit run app.py
 
@@ -76,6 +77,15 @@ def show(fig):
     plt.close(fig)                          # free the figure; matplotlib keeps every one open
 
 
+def guarded_call(fn, *args, **kwargs):
+    """One api call with guarded()'s error wording -> its result, or None on failure. Used
+    where a failing picture must not remove the widgets below it."""
+    box = {}
+    if guarded(lambda: box.update(result=call(fn, *args, **kwargs))):
+        return box["result"]
+    return None
+
+
 def embed_html(html, height):
     """One self-contained HTML page in an iframe. Streamlit 1.67 renamed
     components.html to st.iframe; older installs only have the first."""
@@ -100,8 +110,12 @@ def cached_player(text, detector, fov, mode, wl, fps, live, clip, days, pictures
     pictures is None (all) or a tuple of rows of api.epochs. real_time: hold each picture in
     proportion to the gap to the next one; the app's checkbox sets it, so the player's own
     checkbox is hidden."""
-    return call(api.player_html, text, detector, fov, mode, fps, wl, days, width=600, clip=clip,
+    html = call(api.player_html, text, detector, fov, mode, fps, wl, days, width=600, clip=clip,
                 pictures=pictures, real_time=real_time, show_real_time_toggle=False)
+    # show_real_time_toggle=False marks the player's own checkbox row with `hidden`, but the
+    # player's `.bar {display:flex}` rule overrides that attribute, so it would stay visible
+    # next to the app's checkbox. Force the row off (library CSS, not ours to change).
+    return html.replace("<style>", "<style>.bar[hidden]{display:none}", 1)
 
 
 @st.cache_data(show_spinner=False, max_entries=8)
@@ -122,6 +136,20 @@ def cached_visits(text, live):
     """One row per SPHEREx visit, for the spectrum's visit picker. Without a detector this
     only reads the cached frame tables, so it does not stack images."""
     return call(api.visits, text)
+
+
+@st.cache_data(show_spinner=False, max_entries=4)
+def cached_visits_fresh(text, stamp, live):
+    """visits() after "check for new data". `stamp` goes up on every press, so the table from
+    before the check never answers it; `live` keeps demo and live results apart."""
+    return call(api.visits, text, refresh=True)
+
+
+def bump_refresh(text):
+    """Button callback for "check for new data": runs before the rerun, so the table section
+    above the button already sees the new stamp. A new target starts again from zero."""
+    seen, stamp = st.session_state.get("data_stamp", (None, 0))
+    st.session_state["data_stamp"] = (text, stamp + 1 if seen == text else 1)
 
 
 def url_fov():
@@ -219,6 +247,7 @@ def first_setup():
     st.session_state["mode"] = q.get("mode") if q.get("mode") in MODES else "normal"
     st.session_state["raw"] = q.get("clip") == "0"      # ?clip=0 -> plain average of the frames
     st.session_state["days"] = url_days()               # time step; not a widget key, so it survives view changes
+    st.session_state["real_time"] = q.get("rt") == "1"  # player holds each picture for its time gap
     st.session_state["_defaults_for"] = st.session_state["target"]
 
 
@@ -298,7 +327,7 @@ def video_panel():
         line = (f"{plural(counts['n_pictures'], 'picture')} from "
                 f"{plural(counts['n_frames_total'], 'frame')}")
         if counts["n_few_frames"]:
-            line += f", {counts['n_few_frames']} built from few frames"
+            line += f", {plural(counts['n_few_frames'], 'picture')} built from few frames"
         st.caption(line + (". " + EVERY_FRAME_NOTE if days == 0 else ""))
         if counts["n_few_frames"] and days != 0:     # every frame: all of them, said above
             st.warning(f"{api.FEW_FRAMES_NOTE}: some pictures here rest on fewer than 4 frames "
@@ -341,7 +370,7 @@ def overlays_panel():
     with st.spinner("querying catalogues..."):
         fig, notes = call(api.overlay_figure, st.session_state["target"], target_detector(),
                           float(st.session_state["fov"]), gaia=gaia, wise=wise,
-                          asteroids=asteroids and LIVE)
+                          asteroids=asteroids and LIVE, days=st.session_state["days"])
     show(fig)
     if notes.get("few_frames"):         # the title says it too, but small and easy to miss
         st.warning(f"{api.FEW_FRAMES_NOTE}: this picture rests on fewer than 4 frames under "
@@ -352,8 +381,11 @@ def overlays_panel():
     for failed in notes["failed"]:     # one warning per catalogue that could not be reached
         st.warning(f"overlay not available: {failed}")
     if notes.get("wise_halo_stars"):
-        st.caption(f"{notes['wise_halo_stars']} bright Gaia star(s) near the target have no "
-                   "WISE counterpart: their halos hide the WISE motions around them.")
+        one = notes["wise_halo_stars"] == 1
+        st.caption(f"{plural(notes['wise_halo_stars'], 'bright Gaia star')} near the target "
+                   + ("has no WISE counterpart: its halo hides the WISE motions around it."
+                      if one else
+                      "have no WISE counterpart: their halos hide the WISE motions around them."))
 
 
 SPECTRUM_READ_ONE = ("small dots = single measurements; large dots joined by a line = the average "
@@ -370,7 +402,7 @@ def spectrum_panel():
     every = st.checkbox("every visit", key="spec_every")
     visits = cached_visits(text, LIVE)          # raises the api's readable message if no data
     labels = [f"visit {int(r['visit'])}: {r['first_date']} to {r['last_date']} "
-              f"({int(r['n_frames'])} frames)" for r in visits]
+              f"({plural(int(r['n_frames']), 'frame')})" for r in visits]
     if not labels:
         st.info("no visits with images for this target.")
         return
@@ -391,6 +423,272 @@ def spectrum_panel():
     st.download_button("download csv", df.to_csv(index=False).encode("utf-8"),
                        file_name=f"spectrum_{slug(text)}.csv", mime="text/csv",
                        on_click="ignore")   # keep the figure on the page while the file downloads
+
+
+LIGHT_CURVE_READ = ("each dot = one measurement; dots joined by a line = the average of one visit; "
+                    "grey x = flagged, grey triangles = lower limits of a saturated star (its true "
+                    "brightness is higher), open squares = not measured; gaps are times SPHEREx "
+                    "did not look here.")
+
+
+def light_curve_panel():
+    """Brightness of the target over time at one wavelength. Both boxes start from the target's
+    cached defaults (api.defaults) and are reset when the target changes."""
+    text = st.session_state["target"].strip()
+    c1, c2 = st.columns(2)
+    band = c1.number_input(
+        "wavelength (micron)", min_value=0.75, max_value=5.0, step=0.05, format="%.2f",
+        key="band", help="The wavelength at which the target is measured. The default is the "
+                         "one cached for this target.")
+    # only frames within this window around the wavelength are measured; the library warns
+    # above MAX_SAFE_TOL, so the box stops there (a wider window mixes wavelengths).
+    tol = c2.number_input(
+        "tolerance (micron)", min_value=0.005, max_value=float(api.MAX_SAFE_TOL), step=0.005,
+        format="%.3f", key="tol",
+        help=f"Only frames within ±{api.MAX_SAFE_TOL:g} micron of the wavelength are used. "
+             "A wider window mixes wavelengths, which can look like variability, so this "
+             "stops at the library's safe limit.")
+
+    if not st.button("measure", key="lc_run"):
+        return                              # the light curve is only measured on a press
+    with st.spinner("measuring the light curve..."):
+        fig, table = call(api.light_curve_figure, text, band=float(band), tol=float(tol))
+    show(fig)
+    warning = table.meta.get("warning")     # saturation, wide window, neighbours, mixed releases
+    if warning:
+        st.warning(warning)
+    st.caption(LIGHT_CURVE_READ)
+    df = table.to_pandas()
+    st.dataframe(df, hide_index=True)
+    st.download_button("download csv", df.to_csv(index=False).encode("utf-8"),
+                       file_name=f"light_curve_{slug(text)}.csv", mime="text/csv",
+                       on_click="ignore")   # keep the figure on the page while the file downloads
+
+
+COMPARE_READ_DEEP = ("deep: every visit added into one picture, so faint things stand out; the "
+                     "green circle is where the target should be in the last visit.")
+COMPARE_READ_PAIR = ("pair: later minus earlier, red = brighter later, blue = brighter earlier; "
+                     "the green circle is where the target should be in the later visit.")
+
+
+def epoch_labels(table):
+    """Picker labels for an api.epochs table, like '2026-03-17 (visit 1, 18 frames)'; the
+    'few frames' mark matches the warning shown under the picture."""
+    labels = []
+    for r in table:
+        label = f"{r['date']} (visit {int(r['visit'])}, {plural(int(r['n_frames']), 'frame')}"
+        if r["few_frames"]:
+            label += ", few frames"
+        labels.append(label + ")")
+    return labels
+
+
+def compare_panel():
+    """Deep picture (all visits added), a pair difference, and on a button press the band
+    difference and the colour picture. All four use the app's detector, fov, wl, clip and days."""
+    text = st.session_state["target"].strip()
+    detector = st.session_state["detector"].strip() or None
+    wl = st.session_state["wl"].strip() or None
+    fov = float(st.session_state["fov"])
+    clip = not st.session_state["raw"]
+    days = st.session_state["days"]
+
+    # the deep picture is the whole set of visits, so it loads with the view
+    table = cached_epochs(text, detector, fov, wl, clip, days, None, LIVE)
+    with st.spinner("adding the visits..."):
+        fig = call(api.picture, text, kind="deep", detector=detector, fov=fov, wl=wl,
+                   clip=clip, days=days)
+    show(fig)
+    if table.meta.get("n_few_frames"):
+        n_few = int(table.meta["n_few_frames"])
+        st.warning(f"{api.FEW_FRAMES_NOTE}: "
+                   + ("one of the pictures" if n_few == 1 else f"{n_few} of the pictures")
+                   + " added here " + ("rests" if n_few == 1 else "rest")
+                   + " on fewer than 4 frames under the centre, so one bad frame can survive "
+                     "in the deep picture.")
+    st.caption(COMPARE_READ_DEEP)
+
+    # pair: rows of api.epochs are the a and b of picture(kind="pair"); the api draws the later
+    # visit minus the earlier one whichever order they are picked in
+    labels = epoch_labels(table)
+    rows = list(range(len(table)))
+    settings = "|".join(str(x) for x in (text, detector, fov, wl, clip, days))
+    c1, c2 = st.columns(2)
+    a = c1.selectbox("picture a", rows, index=len(rows) - 1, format_func=labels.__getitem__,
+                     key="cmp_a|" + settings)
+    b = c2.selectbox("picture b", rows, index=0, format_func=labels.__getitem__,
+                     key="cmp_b|" + settings)
+    with st.spinner("subtracting the two visits..."):
+        fig = guarded_call(api.picture, text, kind="pair", detector=detector, fov=fov, wl=wl,
+                           clip=clip, days=days, a=a, b=b)
+    if fig is not None:                 # a == b: the api says so, and the section below stays
+        show(fig)
+        if table["few_frames"][a] or table["few_frames"][b]:
+            st.warning(f"{api.FEW_FRAMES_NOTE}: one of the two pictures rests on fewer than 4 "
+                       "frames under the centre, so one bad frame can survive in the difference.")
+        st.caption(COMPARE_READ_PAIR)
+
+    # band difference and colour picture: each needs several detectors. Only detectors with
+    # frames for this target are offered; the first choices are the ones the demo pictures were
+    # made with (D6 minus D2, and D6, D3, D1 as red, green, blue).
+    st.markdown("#### colour pictures")
+    visits = cached_visits(text, LIVE)      # frame counts per detector; no stacking
+    dets = [d for d in ("D1", "D2", "D3", "D4", "D5", "D6")
+            if sum(int(r[d]) for r in visits) > 0]
+    st.caption("detectors with frames for this target: " + (", ".join(dets) or "none") + ".")
+
+    if len(dets) < 2:
+        st.caption("a band difference needs two detectors.")
+    else:
+        c1, c2 = st.columns(2)
+        long_det = c1.selectbox("long wavelength detector", dets,
+                                index=dets.index("D6") if "D6" in dets else len(dets) - 1,
+                                key=f"cmp_long|{text}")
+        short_det = c2.selectbox("short wavelength detector", dets,
+                                 index=dets.index("D2") if "D2" in dets else 0,
+                                 key=f"cmp_short|{text}")
+        if st.button("band difference", key="cmp_band"):
+            if long_det == short_det:
+                st.info("choose two different detectors for the band difference.")
+            else:
+                with st.spinner("subtracting the two detectors..."):
+                    fig = guarded_call(api.picture, text, kind="banddiff", detector=detector,
+                                       fov=fov, wl=wl, clip=clip, days=days,
+                                       long=long_det, short=short_det)
+                if fig is not None:
+                    show(fig)
+                    st.caption(f"band difference: red = brighter in {long_det}, blue = brighter "
+                               f"in scaled {short_det} (normal stars cancel); the green circle "
+                               "is where the target should be.")
+
+    if len(dets) < 3:
+        st.caption("a colour picture needs three detectors.")
+    else:
+        # the api's defaults first, then whatever else is cached
+        order = [d for d in ("D6", "D3", "D1") if d in dets]
+        order += [d for d in dets if d not in order]
+        c1, c2, c3 = st.columns(3)
+        red = c1.selectbox("red", dets, index=dets.index(order[0]), key=f"cmp_red|{text}")
+        green = c2.selectbox("green", dets, index=dets.index(order[1]), key=f"cmp_green|{text}")
+        blue = c3.selectbox("blue", dets, index=dets.index(order[2]), key=f"cmp_blue|{text}")
+        if st.button("colour picture", key="cmp_rgb"):
+            if len({red, green, blue}) < 3:
+                st.info("choose three different detectors for the colour picture.")
+            else:
+                with st.spinner("combining the three detectors..."):
+                    fig = guarded_call(api.picture, text, kind="rgb", detector=detector,
+                                       fov=fov, wl=wl, clip=clip, days=days,
+                                       rgb=f"{red},{green},{blue}")
+                if fig is not None:
+                    show(fig)
+                    st.caption(f"colour picture: red = {red}, green = {green}, blue = {blue}; "
+                               "the green circle is where the target should be.")
+
+
+FLAGS_READ = ("left = the exposure as observed, right = the cleaned picture with masked pixels in "
+              "red; the green circle is where the target should be. the table lists every flag "
+              "present, the share of pixels it covers and whether it is masked.")
+
+
+def data_panel():
+    """The visits table, one exposure with its flags, and a button to look for new data. The
+    table reads the cached frame lists, so it needs no download and no stacking."""
+    text = st.session_state["target"].strip()
+
+    st.markdown("#### visits")
+    # a refresh belongs to one target only: a new target starts without one
+    seen, stamp = st.session_state.get("data_stamp", (None, 0))
+    stamp = stamp if (seen == text and LIVE) else 0     # a pressed refresh, live mode only
+    with st.spinner("checking the archive..." if stamp else "loading the visits..."):
+        table = cached_visits_fresh(text, stamp, LIVE) if stamp else cached_visits(text, LIVE)
+    if table.meta.get("warning"):
+        st.warning(table.meta["warning"])
+    st.dataframe(table.to_pandas(), hide_index=True)
+
+    st.markdown("#### one exposure")
+    # flags_figure takes one detector; "all" and combinations fall back to their first one
+    box = st.session_state["detector"].strip()
+    det = box.split("+")[0] if box else "D2"
+    if det not in (f"D{i}" for i in range(1, 7)):
+        det = "D2"
+    # rows of this table are in visit order, so the visits with this detector are numbered
+    # 0, 1, ... in the same order as flags_figure's own visit numbers
+    rows = [i for i, r in enumerate(table) if int(r[det]) > 0]
+    if not rows:
+        st.info(f"no {det} frames for this target.")
+        return
+    c1, c2 = st.columns(2)
+    j = c1.selectbox(f"{det} visit", list(range(len(rows))), index=len(rows) - 1,
+                     format_func=lambda k: f"visit {int(table['visit'][rows[k]])}: "
+                                           f"{table['first_date'][rows[k]]}",
+                     key=f"flag_visit|{text}|{det}")
+    n = int(table[det][rows[j]])
+    frame = c2.selectbox("frame", list(range(n)), index=0,
+                         format_func=lambda k: f"frame {k}",
+                         key=f"flag_frame|{text}|{det}|{int(table['visit'][rows[j]])}")
+
+    if st.button("show exposure with flagged pixels", key="flag_show"):
+        with st.spinner("loading the exposure..."):
+            fig, flags = call(api.flags_figure, text, detector=det, visit=j, frame=frame)
+        show(fig)
+        st.caption(FLAGS_READ)
+        st.dataframe(flags.to_pandas(), hide_index=True)
+
+    st.markdown("#### new data")
+    st.button("check for new data", key="data_refresh", disabled=not LIVE,
+              on_click=bump_refresh, args=(text,))
+    if not LIVE:
+        st.caption("checking for new data needs the network, so it only works in live mode "
+                   "(?live=1).")
+
+
+ABOUT_LIMITS = [
+    ("bright stars", "a very bright star fills its pixels, so the middle of it is clipped. its "
+                     "colour and shape there are not real, and a spectrum can only give a lower "
+                     "limit, drawn as grey triangles."),
+    ("neighbour stars", "another star close to the target can fall into the same measurement, so "
+                        "a value may describe two stars together, not only the target."),
+    ("mixed releases", "SPHEREx data comes in releases, and the visits here can come from "
+                       "different ones. a small jump between visits can be the pipeline, not the "
+                       "star itself."),
+    ("stacks", "a stack adds frames together. that helps faint things and hides anything that "
+               "moves or changes fast, such as a fast asteroid."),
+    ("asteroids", "the positions of known asteroids are looked up online, so in demo mode there "
+                  "is no network and they are not drawn."),
+]
+
+
+def about_panel():
+    """Plain words about the mission, the pictures and what they cannot show. No api call, so
+    nothing here needs the lock, the spinner or an error message."""
+    st.markdown(
+        "#### what spherex is\n"
+        "SPHEREx is a NASA space telescope, launched in 2025. it photographs the whole sky in "
+        "near-infrared light and splits that light into many narrow wavelength bands at once, "
+        "so every exposure is a small picture of the sky with a low-resolution spectrum of "
+        "every point in it. the sky is scanned several times, and that is what makes the "
+        "flipbook possible."
+    )
+    st.markdown(
+        "#### how to read the pictures\n"
+        "each picture is one small patch of sky around the target. dark means little light, "
+        "bright means a lot. the green circle is where the target should be at that moment, "
+        "worked out from its measured motion. a stack is several frames added together, which "
+        "makes faint things easier to see and fast things fainter. in difference pictures only "
+        "what changed is coloured: red is brighter than the reference, blue is fainter."
+    )
+    st.markdown(
+        "#### known limits\n"
+        + "\n\n".join(f"**{name}**: {text}" for name, text in ABOUT_LIMITS)
+    )
+    st.markdown(
+        "#### credits\n"
+        "images and measurements: SPHEREx data from IRSA, the NASA/IPAC Infrared Science "
+        "Archive.\n\n"
+        "star positions and motions: Gaia DR3 (ESA).\n\n"
+        "infrared catalogue stars: CatWISE2020.\n\n"
+        "names, distances and cross-identifications: SIMBAD (CDS, Strasbourg)."
+    )
 
 
 # ------------------------------------------------------------------ page
@@ -435,12 +733,18 @@ view = st.segmented_control("view", VIEWS, key="view", label_visibility="collaps
 
 if view == "video":
     guarded(video_panel)
+elif view == "compare":
+    guarded(compare_panel)
 elif view == "overlays":
     guarded(overlays_panel)
 elif view == "spectrum":
     guarded(spectrum_panel)
-else:
-    st.info(f"the {view} view is built in the next step.")
+elif view == "light curve":
+    guarded(light_curve_panel)
+elif view == "about":
+    about_panel()                           # no api call, so nothing to guard
+elif view == "data":
+    guarded(data_panel)
 
 # keep the link shareable; ?live=1 is left alone because it is not ours
 st.query_params.update(
@@ -452,4 +756,5 @@ st.query_params.update(
     mode=st.session_state.get("mode", "normal"),
     clip="0" if st.session_state["raw"] else "1",
     days=str(st.session_state.get("days", 60)),
+    rt="1" if st.session_state.get("real_time") else "0",
 )
