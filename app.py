@@ -10,9 +10,11 @@ Demo mode is on unless the URL has ?live=1. Every API call goes through one lock
 only the view the user chose is built on a rerun.
 """
 import contextvars
+import os
 import re
 import threading
 import time
+from urllib.parse import urlencode
 
 import matplotlib.pyplot as plt
 import streamlit as st
@@ -166,6 +168,23 @@ def with_progress(run):
         return run(line)
     finally:
         line.clear()
+
+
+def share_view():
+    """'Share this view': the link that reopens this target with these settings (ra/dec added,
+    so it also works for any position). Base URL from SPHEREX_PUBLIC_URL if it is set."""
+    params = st.query_params.to_dict()
+    try:
+        info = call(api.resolve, st.session_state["target"])
+        params["ra"], params["dec"] = f"{info['ra']:.5f}", f"{info['dec']:.5f}"
+    except Exception:
+        pass
+    if LIVE:
+        params["live"] = "1"
+    tail = "?" + urlencode(params)
+    base = os.environ.get("SPHEREX_PUBLIC_URL", "").rstrip("/")
+    st.caption("share this view")
+    st.code(f"{base}/{tail}" if base else tail, language=None)
 
 
 def show(fig):
@@ -360,11 +379,41 @@ def axes_note():
 
 
 # ------------------------------------------------------------------ state
+def url_warn(text):
+    """Remember one problem with the link; shown once at the top of the page."""
+    st.session_state.setdefault("_url_warnings", []).append(text)
+
+
+def url_target():
+    """Target from the link: ?target=<name>, else ?ra=<deg>&dec=<deg>, else Barnard's Star.
+    Coordinates that are not numbers or out of range are ignored with a warning."""
+    name = (q.get("target") or "").strip()
+    if name:
+        return name
+    ra, dec = q.get("ra"), q.get("dec")
+    if ra is None and dec is None:
+        return "Barnard's Star"
+    try:
+        ra, dec = float(ra), float(dec)
+        if not (0 <= ra < 360 and -90 <= dec <= 90):
+            raise ValueError
+    except (TypeError, ValueError):
+        url_warn("the ra/dec in the link are not valid coordinates (ra 0-360, dec -90 to 90 degrees), "
+                 "so Barnard's Star is shown instead.")
+        return "Barnard's Star"
+    return f"{ra} {dec}"
+
+
 def first_setup():
     """Fill st.session_state once, starting from the URL."""
     if "target" in st.session_state:
         return
-    st.session_state["target"] = (q.get("target", "Barnard's Star") or "").strip() or "Barnard's Star"
+    st.session_state["target"] = url_target()
+    if "fov" in q:
+        try:
+            float(q["fov"])
+        except (TypeError, ValueError):
+            url_warn(f"the field of view in the link ({q['fov']!r}) is not a number, so 4 arcmin is used.")
     sug = FALLBACK
     try:                                    # api.defaults returns OTHER_DEFAULTS for unknown input
         sug = cached_defaults(st.session_state["target"], LIVE)
@@ -890,6 +939,8 @@ def about_panel():
 # ------------------------------------------------------------------ page
 first_setup()
 st.title("SPHEREx Flipbook")
+for _w in st.session_state.pop("_url_warnings", []):    # bad values in the link: said once, then ignored
+    st.warning(_w)
 st.markdown('<p class="lede">enter a name or coordinates to see how a patch of sky changes '
             'in SPHEREx images.</p>', unsafe_allow_html=True)
 
@@ -967,6 +1018,11 @@ st.query_params.update(
     days=str(st.session_state.get("days", 60)),
     rt="1" if st.session_state.get("real_time") else "0",
 )
+
+for _k in ("ra", "dec"):                   # used once on load; the target now holds the position
+    if _k in st.query_params:
+        del st.query_params[_k]
+share_view()
 
 st.markdown(
     '<div class="app-footer">SPHEREx / IRSA, Gaia DR3, CatWISE2020, SIMBAD'
