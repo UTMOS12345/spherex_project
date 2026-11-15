@@ -27,6 +27,7 @@ from . import net
 from .net import with_retries, CACHE_ROOT
 from .progress import report, DOWNLOADING
 from .targets import at_time
+from .text import plural
 
 CACHE_DIR = CACHE_ROOT / "cutouts"
 
@@ -126,9 +127,9 @@ def _enforce_cache_limit(keep=()):
             except OSError:
                 pass
         if evicted and max_gb:
-            print(f"cache {total / _GB:.1f}/{max_gb:.1f} GB: evicted {evicted} files ({evicted_bytes / (1024 * 1024):.0f} MB)")
+            print(f"cache {total / _GB:.1f}/{max_gb:.1f} GB: evicted {plural(evicted, 'file')} ({evicted_bytes / (1024 * 1024):.0f} MB)")
         elif evicted:
-            print(f"cache: evicted {evicted} expired files ({evicted_bytes / (1024 * 1024):.0f} MB)")
+            print(f"cache: evicted {plural(evicted, 'expired file')} ({evicted_bytes / (1024 * 1024):.0f} MB)")
 
 
 def cutout_url(url, center, size_deg):

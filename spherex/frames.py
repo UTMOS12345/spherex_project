@@ -11,6 +11,7 @@ from astroquery.ipac.irsa import Irsa
 from .net import with_retries, CACHE_ROOT
 from .progress import report, SEARCHING
 from .targets import at_time, target_name
+from .text import plural
 
 KEEP = ["t_min", "t_max", "energy_bandpassname", "em_min", "em_max", "obs_id", "access_url"]
 TABLE_DIR = CACHE_ROOT / "frames"
@@ -48,7 +49,7 @@ def find_frames(coord, collections=None, include_qr1=False, progress=None):
     parts = []
     for rank, col in enumerate(cols):                    # rank 0 = newest release
         t = with_retries(Irsa.query_sia, pos=(now, 30 * u.arcsec), collection=col)
-        print(f"  {col}: {len(t)} frames")
+        print(f"  {col}: {plural(len(t), 'frame')}")
         report(progress, SEARCHING, rank + 2, total)
         if len(t):
             t = Table(t)[KEEP]
