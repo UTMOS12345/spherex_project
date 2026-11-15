@@ -9,13 +9,16 @@ view, the compare view (deep, pair, band difference, colour) and the data view.
 Demo mode is on unless the URL has ?live=1. Every API call goes through one lock, and
 only the view the user chose is built on a rerun.
 """
+import contextvars
 import re
 import threading
+import time
 
 import matplotlib.pyplot as plt
 import streamlit as st
 
 from spherex import api, set_style
+from spherex.progress import Estimate
 
 TARGETS = ["Barnard's Star", "Epsilon Indi B", "WISE 0855", "RW Aur", "R Draconis"]
 VIEWS = ["video", "compare", "overlays", "light curve", "spectrum", "data", "about"]
@@ -72,6 +75,51 @@ def guarded(panel):
     return False
 
 
+SHOW_PROGRESS_AFTER_S = 0.5               # a cached result returns sooner, so it never flashes a bar
+
+
+class ProgressLine:
+    """The api's progress(stage, done, total) callback: a bar and one caption line, e.g.
+    "downloading images · 23 / 61 · about 2 min left", drawn in a placeholder at the place it was
+    created, once the call has taken SHOW_PROGRESS_AFTER_S. The api calls it in this script run's
+    thread, so every update reaches the page while the computation is still running.
+    The calls come from inside st.cache_data functions, and Streamlit records anything drawn there
+    to replay it on a cache hit, where this placeholder no longer exists (the replay fails). So
+    the drawing runs in the context captured here, outside the cached function: not recorded."""
+
+    def __init__(self):
+        self._box = st.empty()
+        self._context = contextvars.copy_context()
+        self._estimate = Estimate()
+        self._start = time.monotonic()
+        self._bar = self._line = None
+
+    def __call__(self, stage, done, total):
+        info = self._estimate.update(stage, done, total)
+        if time.monotonic() - self._start >= SHOW_PROGRESS_AFTER_S:
+            self._context.run(self._draw, info)
+
+    def _draw(self, info):
+        if self._bar is None:
+            box = self._box.container()
+            self._bar, self._line = box.empty(), box.empty()
+        self._bar.progress(info["fraction"])
+        self._line.caption(info["text"])
+
+    def clear(self):
+        self._box.empty()
+
+
+def with_progress(run):
+    """run(progress) with a new ProgressLine; the bar and its line are removed when the result
+    (or an error) arrives."""
+    line = ProgressLine()
+    try:
+        return run(line)
+    finally:
+        line.clear()
+
+
 def show(fig):
     st.pyplot(fig)
     plt.close(fig)                          # free the figure; matplotlib keeps every one open
@@ -104,14 +152,14 @@ def cached_defaults(text, live):
 
 
 @st.cache_data(show_spinner=False, max_entries=12)
-def cached_player(text, detector, fov, mode, wl, fps, live, clip, days, pictures, real_time):
+def cached_player(text, detector, fov, mode, wl, fps, live, clip, days, pictures, real_time, _progress=None):
     """The interactive player as one HTML page. `live` is only part of the cache key: live mode
     may see other data. clip=False and each time step (days) are different sets of pictures;
     pictures is None (all) or a tuple of rows of api.epochs. real_time: hold each picture in
     proportion to the gap to the next one; the app's checkbox sets it, so the player's own
-    checkbox is hidden."""
+    checkbox is hidden. _progress: a ProgressLine (not part of the cache key)."""
     html = call(api.player_html, text, detector, fov, mode, fps, wl, days, width=600, clip=clip,
-                pictures=pictures, real_time=real_time, show_real_time_toggle=False)
+                pictures=pictures, real_time=real_time, show_real_time_toggle=False, progress=_progress)
     # show_real_time_toggle=False marks the player's own checkbox row with `hidden`, but the
     # player's `.bar {display:flex}` rule overrides that attribute, so it would stay visible
     # next to the app's checkbox. Force the row off (library CSS, not ours to change).
@@ -119,16 +167,17 @@ def cached_player(text, detector, fov, mode, wl, fps, live, clip, days, pictures
 
 
 @st.cache_data(show_spinner=False, max_entries=8)
-def cached_flipbook(text, detector, fov, mode, wl, fps, live, clip, days, pictures):
+def cached_flipbook(text, detector, fov, mode, wl, fps, live, clip, days, pictures, _progress=None):
     """GIF bytes for the export button. Same key rule as the player."""
-    return call(api.flipbook, text, detector, fov, mode, fps, wl, days, clip=clip, pictures=pictures)
+    return call(api.flipbook, text, detector, fov, mode, fps, wl, days, clip=clip, pictures=pictures,
+                progress=_progress)
 
 
 @st.cache_data(show_spinner=False, max_entries=16)
-def cached_epochs(text, detector, fov, wl, clip, days, pictures, live):
+def cached_epochs(text, detector, fov, wl, clip, days, pictures, live, _progress=None):
     """One row per picture of the player with these settings (api.epochs; pictures as for the
     player). It shares the stacks the player builds, so it costs nothing extra."""
-    return call(api.epochs, text, detector, fov, wl, days, clip, pictures)
+    return call(api.epochs, text, detector, fov, wl, days, clip, pictures, progress=_progress)
 
 
 @st.cache_data(show_spinner=False, max_entries=8)
@@ -205,7 +254,7 @@ def choose_pictures(text, detector, fov, wl, clip, days):
     """The "choose pictures" box, filled from api.epochs -> None (all pictures), or a sorted
     tuple of the chosen rows. Above MAX_PICK pictures the box is hidden (None).
     The box has its own key per setting, so a choice never carries over to other pictures."""
-    table = cached_epochs(text, detector, fov, wl, clip, days, None, LIVE)
+    table = with_progress(lambda p: cached_epochs(text, detector, fov, wl, clip, days, None, LIVE, _progress=p))
     n = len(table)
     if n > MAX_PICK:
         st.caption("choose a coarser time step to pick pictures")
@@ -319,7 +368,7 @@ def video_panel():
     key = (text, detector, fov, mode, wl, fps, LIVE, clip, days, pictures)
 
     with st.spinner("building the player..."):
-        html = cached_player(*key, real_time)
+        html = with_progress(lambda p: cached_player(*key, real_time, _progress=p))
     # 800 px leaves room for a square picture plus the control bar, so nothing needs scrolling
     embed_html(html, height=800)
     counts = picture_counts(text, detector, fov, wl, clip, days, pictures)
@@ -337,7 +386,7 @@ def video_panel():
     # the gif is only built when asked for; its bytes stay for as long as the settings do
     if st.button("export gif", key="export_gif"):
         with st.spinner("building the gif..."):
-            st.session_state["gif"] = (key, cached_flipbook(*key))
+            st.session_state["gif"] = (key, with_progress(lambda p: cached_flipbook(*key, _progress=p)))
     gif = st.session_state.get("gif")
     if gif and gif[0] == key:
         st.download_button("download gif", gif[1], mime="image/gif",
@@ -368,9 +417,10 @@ def overlays_panel():
         # the asteroid lookup is a network query, so demo mode must not wait for it
         st.caption("asteroid positions need the network, so they are not drawn in demo mode.")
     with st.spinner("querying catalogues..."):
-        fig, notes = call(api.overlay_figure, st.session_state["target"], target_detector(),
-                          float(st.session_state["fov"]), gaia=gaia, wise=wise,
-                          asteroids=asteroids and LIVE, days=st.session_state["days"])
+        fig, notes = with_progress(lambda p: call(
+            api.overlay_figure, st.session_state["target"], target_detector(),
+            float(st.session_state["fov"]), gaia=gaia, wise=wise,
+            asteroids=asteroids and LIVE, days=st.session_state["days"], progress=p))
     show(fig)
     if notes.get("few_frames"):         # the title says it too, but small and easy to miss
         st.warning(f"{api.FEW_FRAMES_NOTE}: this picture rests on fewer than 4 frames under "
@@ -412,7 +462,8 @@ def spectrum_panel():
     if not st.button("measure", key="spec_run"):
         return                                  # the spectrum is only measured on a press
     with st.spinner("measuring the spectrum..."):
-        fig, table = call(api.spectrum_figure, text, visit=idx, all_visits=every)
+        fig, table = with_progress(lambda p: call(api.spectrum_figure, text, visit=idx, all_visits=every,
+                                                  progress=p))
     show(fig)
     warning = table.meta.get("warning")         # saturation, neighbours, mixed releases
     if warning:
@@ -452,7 +503,8 @@ def light_curve_panel():
     if not st.button("measure", key="lc_run"):
         return                              # the light curve is only measured on a press
     with st.spinner("measuring the light curve..."):
-        fig, table = call(api.light_curve_figure, text, band=float(band), tol=float(tol))
+        fig, table = with_progress(lambda p: call(api.light_curve_figure, text, band=float(band), tol=float(tol),
+                                                  progress=p))
     show(fig)
     warning = table.meta.get("warning")     # saturation, wide window, neighbours, mixed releases
     if warning:
@@ -494,10 +546,10 @@ def compare_panel():
     days = st.session_state["days"]
 
     # the deep picture is the whole set of visits, so it loads with the view
-    table = cached_epochs(text, detector, fov, wl, clip, days, None, LIVE)
+    table = with_progress(lambda p: cached_epochs(text, detector, fov, wl, clip, days, None, LIVE, _progress=p))
     with st.spinner("adding the visits..."):
-        fig = call(api.picture, text, kind="deep", detector=detector, fov=fov, wl=wl,
-                   clip=clip, days=days)
+        fig = with_progress(lambda p: call(api.picture, text, kind="deep", detector=detector, fov=fov, wl=wl,
+                                           clip=clip, days=days, progress=p))
     show(fig)
     if table.meta.get("n_few_frames"):
         n_few = int(table.meta["n_few_frames"])
@@ -519,8 +571,8 @@ def compare_panel():
     b = c2.selectbox("picture b", rows, index=0, format_func=labels.__getitem__,
                      key="cmp_b|" + settings)
     with st.spinner("subtracting the two visits..."):
-        fig = guarded_call(api.picture, text, kind="pair", detector=detector, fov=fov, wl=wl,
-                           clip=clip, days=days, a=a, b=b)
+        fig = with_progress(lambda p: guarded_call(api.picture, text, kind="pair", detector=detector, fov=fov,
+                                                   wl=wl, clip=clip, days=days, a=a, b=b, progress=p))
     if fig is not None:                 # a == b: the api says so, and the section below stays
         show(fig)
         if table["few_frames"][a] or table["few_frames"][b]:
@@ -552,9 +604,9 @@ def compare_panel():
                 st.info("choose two different detectors for the band difference.")
             else:
                 with st.spinner("subtracting the two detectors..."):
-                    fig = guarded_call(api.picture, text, kind="banddiff", detector=detector,
-                                       fov=fov, wl=wl, clip=clip, days=days,
-                                       long=long_det, short=short_det)
+                    fig = with_progress(lambda p: guarded_call(
+                        api.picture, text, kind="banddiff", detector=detector, fov=fov, wl=wl, clip=clip,
+                        days=days, long=long_det, short=short_det, progress=p))
                 if fig is not None:
                     show(fig)
                     st.caption(f"band difference: red = brighter in {long_det}, blue = brighter "
@@ -576,9 +628,9 @@ def compare_panel():
                 st.info("choose three different detectors for the colour picture.")
             else:
                 with st.spinner("combining the three detectors..."):
-                    fig = guarded_call(api.picture, text, kind="rgb", detector=detector,
-                                       fov=fov, wl=wl, clip=clip, days=days,
-                                       rgb=f"{red},{green},{blue}")
+                    fig = with_progress(lambda p: guarded_call(
+                        api.picture, text, kind="rgb", detector=detector, fov=fov, wl=wl, clip=clip,
+                        days=days, rgb=f"{red},{green},{blue}", progress=p))
                 if fig is not None:
                     show(fig)
                     st.caption(f"colour picture: red = {red}, green = {green}, blue = {blue}; "
