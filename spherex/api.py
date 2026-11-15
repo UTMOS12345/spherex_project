@@ -36,7 +36,7 @@ from .frames import load_or_find_frames
 from .gaia import gaia_overlay, draw_gaia
 from .photometry import light_curve
 from .plots import (plot_light_curve_simple, plot_spectrum, plot_spectra_visits, wavelength_spread, WL_SPREAD_UM,
-                    THEME)
+                    THEME, MOLECULES)
 from .progress import report, shifted, SEARCHING, MEASURING, DRAWING
 from .spectrum import spectrum, spectrum_requests, bin_to_channels, channel_edges
 from .targets import parse_target, at_time, has_pm, known_target, known_near, target_name
@@ -660,6 +660,19 @@ def _state(t):
     return t
 
 
+def _set_units(t):
+    """Attach units to the columns that carry one (column names already say it: *_mjy, *_um,
+    *mjd). Values are unchanged; the app can read t[col].unit instead of hardcoding a unit."""
+    for c in t.colnames:
+        if c.endswith("_mjy"):
+            t[c].unit = "mJy"
+        elif c.endswith("_um"):
+            t[c].unit = "um"
+        elif c == "mjd" or c.endswith("_mjd"):
+            t[c].unit = "d"           # Modified Julian Date, in days
+    return t
+
+
 def _light_curve_table(lc):
     """Light-curve rows + what the figure draws per visit: visit_mjd (where the visit average is
     drawn), visit_flux_mjy (mean of the visit's usable points), visit_spread_mjy (their standard
@@ -681,7 +694,7 @@ def _light_curve_table(lc):
     for k, val in cols.items():
         lc[k] = val
     lc["visit_n_ok"] = n_ok
-    return lc
+    return _set_units(lc)
 
 
 def _spectrum_table(spec, binned, visit):
@@ -705,7 +718,7 @@ def _spectrum_table(spec, binned, visit):
                      ("channel_err_mjy", "err_mjy")]:
         t[col] = [float(avg[(d, c)][src]) if (d, c) in avg else np.nan for d, c in zip(det, ch)]
     t["channel_n"] = [int(avg[(d, c)]["n"]) if (d, c) in avg else 0 for d, c in zip(det, ch)]
-    return t
+    return _set_units(t)
 
 
 def _with_warning(fig, table, warning):
@@ -819,6 +832,28 @@ def spectrum_figure(text, visit=-1, all_visits=False, progress=None):
     result = _with_warning(fig, table, _join(SATURATED_NOTE if saturated else None, neighbours))
     report(progress, DRAWING, 1, 1)
     return result
+
+
+def molecule_bands():
+    """
+    Return the known absorption-band markers used for spectra, as plain data
+    (no plotting). Each item: {"name": str, "wavelength_um": float, "label": str}.
+    For a band with a range rather than one line, also include
+    "wavelength_range_um": [low, high].
+    Read from plots.MOLECULES (the markers spectrum_figure draws), sorted by wavelength.
+    "label" is the text drawn next to the marker on the figure. All markers are single
+    wavelengths today; a (low, high) pair in MOLECULES would give a range centred on its middle.
+    """
+    bands = []
+    for name, wls in MOLECULES.items():
+        for wl in wls:
+            if isinstance(wl, (tuple, list)):
+                lo, hi = (float(x) for x in wl)
+                bands.append({"name": name, "wavelength_um": (lo + hi) / 2, "label": name,
+                              "wavelength_range_um": [lo, hi]})
+            else:
+                bands.append({"name": name, "wavelength_um": float(wl), "label": name})
+    return sorted(bands, key=lambda b: b["wavelength_um"])
 
 
 # ------------------------------------------------------------------ 6. contamination flags

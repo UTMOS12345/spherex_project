@@ -118,6 +118,7 @@ are not affected.
 | Light curve | `api.light_curve_figure(text, band=1.6, tol=0.02, progress=None)` | (figure, table) |
 | Spectrum | `api.spectrum_figure(text, visit=-1, all_visits=False, progress=None)` | (figure, table) |
 | Flags | `api.flags_figure(text, detector="D2", visit=-1, frame=0)` | (figure, table) |
+| Molecule markers | `api.molecule_bands()` | list of dicts (plain data, no plotting); see "Molecule bands" |
 
 Show a figure with `st.pyplot(fig)` and then `plt.close(fig)`; a table with
 `st.dataframe(table.to_pandas())`; GIF bytes with `st.image(gif)`.
@@ -183,6 +184,38 @@ row, is in "Drawing your own charts" below. Both tables hold everything their fi
 `flags_figure` table: `flag`, `bit`, `percent_of_pixels`, `masked` (whether this tool masks
 it), only flags present in that exposure. If the requested exposure is not in `cache/` in demo
 mode, the next one of that visit that is cached is shown.
+
+## Units
+
+Read units from the returned object; do not hardcode them in the app. They may change in a
+future version.
+
+- `light_curve_figure` figure: x axis "date (UTC)", y axis "brightness (mJy)". Table: every
+  column ending in `_mjy` has `.unit` mJy, `wavelength_um` has µm (`um`), `mjd` and `visit_mjd`
+  have `d` (Modified Julian Date, days).
+- `spectrum_figure` figure (one visit or `all_visits=True`): x axis "wavelength (µm)", y axis
+  "brightness (mJy)". Table: `_mjy` columns mJy, `wavelength_um` and `channel_wavelength_um` µm
+  (`um`), `mjd` `d`.
+- `molecule_bands()`: wavelengths in micron (the `_um` in the key names).
+
+In code: `fig.axes[0].get_xlabel()`, `fig.axes[0].get_ylabel()`, `str(table["flux_mjy"].unit)`
+(`None` for unitless columns such as `detector` or `state`). `table.to_pandas()` drops the units,
+so read them before converting.
+
+## Molecule bands
+
+`api.molecule_bands()` returns the absorption-band markers that `spectrum_figure` draws (dashed
+lines labelled with the molecule), as plain data so an app can draw them on its own charts. One
+dict per marker, sorted by wavelength:
+
+```python
+{"name": "H2O", "wavelength_um": 1.4, "label": "H2O"}
+```
+
+`name`: molecule; `wavelength_um`: approximate band centre (micron); `label`: the text the figure
+draws next to the line. A band given as a range would also have `"wavelength_range_um": [low, high]`
+(none today). The values come from `plots.MOLECULES`, the single source used for the figures.
+They are for orientation only: real bands are broad and depend on temperature.
 
 ## Drawing your own charts
 

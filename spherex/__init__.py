@@ -45,3 +45,4 @@ from .combine import deep_image, minus_mean, difference_series, band_difference,
 from .asteroids import known_asteroids, draw_asteroids                                   # noqa: E402
 from .spectrum import spectrum, bin_to_channels, epoch_frames, channel_edges                                    # noqa: E402
 from . import api                                                  # noqa: E402
+from .api import molecule_bands                                    # noqa: E402
