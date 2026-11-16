@@ -1,6 +1,10 @@
-# Hosting a demo server (optional)
+# Self-hosting the app (optional)
 
-The app is meant to run on your own computer (`pipx install`, see the README). A hosted demo is
+> **There is no public instance.** The demo server that ran during the NASA Space Apps Challenge
+> has been shut down. This page is for anyone who wants to host their own copy; to just use the
+> app, install it on your computer (see the README).
+
+The app is meant to run on your own computer (`pipx install`, see the README). Hosting it is
 optional: one Ubuntu server that serves the app read-only to visitors. The step-by-step server
 guide is [deploy/README.md](../deploy/README.md); this page is the overview.
 
@@ -27,22 +31,19 @@ bash deploy/bootstrap.sh                          # as root on a fresh server
 rsync -av cache/ root@SERVER:/srv/spherex-cache/  # or fill it there with tools/prepare_demo.py
 ```
 
-## After the move to paramost/ (version 1.0)
+## Servers set up before version 1.0
 
-The app moved from `app.py` to `paramost/app.py`, started by `python -m paramost`. The systemd
-unit and the deploy script on a server are copies made at setup, which `git pull` does not
-update, so re-install them once when the server follows a branch with this change:
+The systemd unit and the deploy script on a server are copies made at setup, which `git pull`
+does not update. A server set up before 1.0 (when the app was `app.py` at the root) re-installs
+them once:
 
 ```
 install -m 0644 /srv/spherex/deploy/spherex.service /etc/systemd/system/spherex.service
 install -m 0755 /srv/spherex/deploy/deploy.sh /usr/local/bin/spherex-deploy
 systemctl daemon-reload && systemctl restart spherex
-systemctl is-active spherex && curl -sI http://127.0.0.1:8501 | head -1
 ```
 
-Until then, `app.py` at the root of the checkout forwards to `paramost/app.py`, so an old unit
-keeps working (without the dark theme). `platformdirs` (new in 1.0) is installed by the deploy
-script, because `requirements.txt` changed.
+Until then, `app.py` at the root of the checkout forwards to `paramost/app.py`.
 
 ## Demo backups and extra products (tools/)
 

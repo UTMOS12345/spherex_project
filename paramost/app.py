@@ -6,7 +6,7 @@ view, the compare view (deep, pair, band difference, colour) and the data view.
 
     paramost                          # installed: the launcher starts this file with the theme
     python -m paramost                # from a source checkout, same thing
-    SPHEREX_DEMO=1 python -m paramost # public demo: starts offline
+    SPHEREX_DEMO=1 python -m paramost # a server open to visitors: starts offline
 
 Live is the default: a view that needs images not downloaded yet first says how many and
 waits for its Download button. The "Offline" toggle (or SPHEREX_DEMO=1, or ?offline=1 in the
@@ -111,7 +111,7 @@ LIVE = True                                 # set from the Offline toggle on eve
 
 def initial_offline():
     """The Offline toggle at first load: ?offline=1/0 in the link, else the older ?live=1/0,
-    else SPHEREX_DEMO=1 (a public demo server starts offline), else live (local use)."""
+    else SPHEREX_DEMO=1 (a server open to visitors starts offline), else live (local use)."""
     if q.get("offline") in ("0", "1"):
         return q.get("offline") == "1"
     if q.get("live") in ("0", "1"):
@@ -585,7 +585,7 @@ def refresh_defaults():
 
 # ------------------------------------------------------------------ your targets
 MAX_TARGET_BUTTONS = 12
-# a public demo server (SPHEREX_DEMO=1) shows its targets, but no visitor may delete its data
+# a server open to visitors (SPHEREX_DEMO=1) shows its targets, but no visitor may delete its data
 REMOVE_ALLOWED = os.environ.get("SPHEREX_DEMO", "0") != "1"
 PRELOAD_TARGETS, PRELOAD_FILES = 3, 4      # most recent targets, newest saved results of each
 

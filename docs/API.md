@@ -6,7 +6,7 @@ is the app itself, `paramost/app.py` (`python -m paramost`).
 
 ## For the app
 
-- **Turn demo mode on at start** for a live demo: `api.set_demo_mode(True)` (or start with
+- **Turn demo mode on at start** for a server open to visitors: `api.set_demo_mode(True)` (or start with
   `SPHEREX_DEMO=1`). Without it, any setting whose images are not in `cache/` downloads them from
   IRSA, which takes minutes, and on a bad network each image is retried for minutes more.
 - **Show `table.meta["warning"]` on the page** (`st.warning(...)`) whenever a returned table has

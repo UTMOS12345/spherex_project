@@ -115,7 +115,7 @@ measuring circle:
 
 The **Offline** toggle at the top (or `paramost --offline`, or `?offline=1` in the link) uses
 only data already on this computer: nothing is downloaded, and a target without images says
-"Not downloaded yet". Turn it off to download. A server for a public demo sets
+"Not downloaded yet". Turn it off to download. A server open to visitors sets
 `SPHEREX_DEMO=1`, which starts the app offline and hides the remove buttons (see
 [docs/deploy.md](docs/deploy.md)).
 
@@ -235,8 +235,8 @@ In the code but not verified here: the asteroid overlay (needs IMCCE SkyBoT onli
   minutes (6 at a time; one at a time took 13 minutes for 62 images). When IRSA does not
   answer, the app says so and tries again on the next request.
 - **Field of view** up to 10′ (larger views would need bigger downloads).
-- **Runs on your computer**: the app is meant to be installed locally; a hosted demo is
-  optional (docs/deploy.md).
+- **Runs on your computer**: the app is meant to be installed locally; there is no
+  public instance (self-hosting: docs/deploy.md).
 
 ## Data and credits
 
@@ -260,7 +260,7 @@ This tool uses:
 - `tools/` command-line scripts for a source checkout (docs/deploy.md): `prepare_demo.py`,
   `make_gallery.py`, `explore.py`, and `strip_psf.py IN OUT`, which writes copies of old
   cutouts without their unused PSF layer (93% smaller).
-- `docs/` `API.md` (the library interface), `deploy.md` (hosting a demo server);
+- `docs/` `API.md` (the library interface), `deploy.md` (self-hosting);
   `docs/history/` earlier review notes.
 - `tests/` unit tests (`pip install -e ".[test]"`, then `pytest`; no network needed).
 - `cache/` in a source checkout: the frame lists and catalogue cones of the five test targets
