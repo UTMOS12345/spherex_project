@@ -59,10 +59,11 @@ def read(root):
         except (OSError, ValueError):
             pass
         entries = rebuild(root)
-        try:
-            _write(root, entries)
-        except OSError:
-            pass
+        if entries:                    # looking at an empty cache creates no files
+            try:
+                _write(root, entries)
+            except OSError:
+                pass
         return entries
 
 
