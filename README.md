@@ -9,7 +9,7 @@ detectors, Gaia DR3 and CatWISE2020 overlays with proper-motion arrows, light cu
 measured on the fly from all 102 SPHEREx channels, and the contamination flags of the data.
 
 The data side is the Python package `spherex/`; `spherex/api.py` is the interface the web app
-calls (see `API.md`). `app.py` is the Streamlit web app.
+calls (see `docs/API.md`). `app.py` is the Streamlit web app.
 
 ## How it meets the challenge
 
@@ -65,12 +65,12 @@ Recommended server setting: `SPHEREX_CACHE_MAX_GB=25`, `SPHEREX_CACHE_POLICY=evi
 
 ## Generated outputs
 
-`prepare_demo.py`, `make_gallery.py` and `explore.py` write generated files to `demo/` and
+`tools/prepare_demo.py`, `tools/make_gallery.py` and `tools/explore.py` write generated files to `demo/` and
 `out/` by default. Both are gitignored; on a server it is better to keep them outside the
 clone:
 
-- `SPHEREX_DEMO_DIR` (default `demo`): where `prepare_demo.py` / `make_gallery.py` save.
-- `SPHEREX_OUT_DIR` (default `out`): where `explore.py` saves.
+- `SPHEREX_DEMO_DIR` (default `demo`): where `tools/prepare_demo.py` / `tools/make_gallery.py` save.
+- `SPHEREX_OUT_DIR` (default `out`): where `tools/explore.py` saves.
 
 ## Install and run
 
@@ -92,13 +92,13 @@ downloads, and every server call gets one short try, so nothing can hang; images
 Backup results for the five test targets, made from the cache:
 
 ```
-SPHEREX_DEMO=1 .venv/bin/python prepare_demo.py --skip-explore    # video, difference, overlay, light curve, spectrum
-.venv/bin/python make_gallery.py                                  # every other product, demo/STATUS.md, demo/index.html
+SPHEREX_DEMO=1 .venv/bin/python tools/prepare_demo.py --skip-explore    # video, difference, overlay, light curve, spectrum
+.venv/bin/python tools/make_gallery.py                                  # every other product, demo/STATUS.md, demo/index.html
 ```
 
-Open `demo/index.html` to see them all. Note: `make_gallery.py` downloads the images a product
+Open `demo/index.html` to see them all. Note: `tools/make_gallery.py` downloads the images a product
 needs when the cache has none of them (it switches demo mode off for that step).
-`prepare_demo.py --refresh` searches IRSA for new data and `--all-frames` downloads every frame;
+`tools/prepare_demo.py --refresh` searches IRSA for new data and `--all-frames` downloads every frame;
 both need the network and take long.
 
 ## Deployment
@@ -210,10 +210,12 @@ This tool uses:
 
 ## Files
 
-- `spherex/` the library; `spherex/api.py` the functions the app calls (`API.md`).
+- `spherex/` the library; `spherex/api.py` the functions the app calls (`docs/API.md`).
 - `app.py` the Streamlit app.
-- `prepare_demo.py`, `make_gallery.py` fill `demo/` with backup results; `explore.py` writes extra
-  products to `out/`.
+- `tools/` command-line scripts: `prepare_demo.py`, `make_gallery.py` fill `demo/` with backup
+  results; `explore.py` writes extra products to `out/`. Run them from the repo root.
+- `docs/` `API.md`; `docs/history/` earlier review notes and the cleanup plan.
+- `tests/` pytest tests (`pip install -r requirements-dev.txt`, then `pytest`).
 - `cache/` frame lists, cutouts, Gaia and CatWISE cones. Cutouts are not tracked; ship or rebuild
-  them (`prepare_demo.py`).
+  them (`tools/prepare_demo.py`).
 - `deploy/` systemd unit, nginx site, bootstrap and auto-deploy scripts (`deploy/README.md`).
