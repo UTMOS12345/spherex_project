@@ -8,6 +8,12 @@ brightness stands out. Around the video: difference pictures, colour pictures fr
 detectors, Gaia DR3 and CatWISE2020 overlays with proper-motion arrows, light curves, spectra
 measured on the fly from all 102 SPHEREx channels, and the contamination flags of the data.
 
+![Barnard's Star in difference mode: the later visit minus the first, red where it is now, blue where it was](docs/img/video_difference.png)
+
+*Barnard's Star, the fastest-moving star in the sky, in the app's video player (difference
+mode, D2, 2026-08-22 minus 2025-08-26): red where it is now, blue where it was a year earlier;
+the green circle is its predicted position.*
+
 The data side is the Python package `spherex/`; `spherex/api.py` is the interface the web app
 calls (see `docs/API.md`). `paramost/app.py` is the Streamlit web app; `paramost` starts it.
 
@@ -96,6 +102,14 @@ Targets you have downloaded appear on the start screen under **your targets**, n
 with the date you last looked and their size on disk. A button opens the target with the
 settings you last used; **remove** (after a confirmation) deletes its images and saved
 results.
+
+![The start screen: search box, the one-line hint, and two downloaded targets with their size](docs/img/start_screen.png)
+
+Light curves and spectra carry their caveats on the figure. WISE 0855 at 4.5 µm: the points
+were measured at slightly different wavelengths, and a Gaia star 6″ away falls inside the
+measuring circle:
+
+![WISE 0855 light curve at 4.5 micron with its warnings](docs/img/light_curve.png)
 
 ## Offline mode
 
