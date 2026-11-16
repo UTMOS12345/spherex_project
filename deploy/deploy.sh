@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Pull the production branch and restart the demo.
+# Pull the main branch and restart the demo.
 # Run as root (the cron entry does this) or with sudo.
 set -euo pipefail
 
-BRANCH="${BRANCH:-production}"
+BRANCH="${BRANCH:-main}"
 APP_DIR="${APP_DIR:-/srv/spherex}"
 SERVICE="${SERVICE:-spherex}"
 

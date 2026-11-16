@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # One-shot setup on a fresh Ubuntu 22.04/24.04 droplet. Run as root.
 #
-#   git clone --branch production https://github.com/UTMOS12345/spherex_project.git /srv/spherex
+#   git clone --branch main https://github.com/UTMOS12345/spherex_project.git /srv/spherex
 #   bash /srv/spherex/deploy/bootstrap.sh
 #
 # Or copy this directory to the server and run it; it clones the repo itself.
 set -euo pipefail
 
 REPO="${REPO:-https://github.com/UTMOS12345/spherex_project.git}"
-BRANCH="${BRANCH:-production}"
+BRANCH="${BRANCH:-main}"
 APP_DIR="${APP_DIR:-/srv/spherex}"
 CACHE_DIR="${CACHE_DIR:-/srv/spherex-cache}"
 

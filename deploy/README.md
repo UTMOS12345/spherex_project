@@ -2,13 +2,13 @@
 
 Target: a fresh DigitalOcean droplet, Ubuntu 24.04, 2 vCPU / 4 GB RAM / 50+ GB disk.
 The app runs as the `spherex` system user behind nginx; a cron job follows the
-`production` branch.
+`main` branch.
 
 ## 1. Bootstrap the server
 
 ```bash
 ssh root@YOUR_DROPLET_IP
-git clone --branch production https://github.com/UTMOS12345/spherex_project.git /srv/spherex
+git clone --branch main https://github.com/UTMOS12345/spherex_project.git /srv/spherex
 bash /srv/spherex/deploy/bootstrap.sh
 ```
 
@@ -65,10 +65,10 @@ ufw --force enable
 
 ## 4. Updates
 
-Merge to `production` and push; the cron job pulls and restarts within 5 minutes:
+Merge to `main` and push; the cron job pulls and restarts within 5 minutes:
 
 ```bash
-git push origin production
+git push origin main
 ```
 
 Apply immediately, or check what the cron job did:
@@ -85,16 +85,33 @@ changes. To turn automatic deploys off:
 rm /etc/cron.d/spherex-deploy
 ```
 
+## Switching an existing server from `production` to `main`
+
+Servers set up before 16 Nov 2026 follow `production`. The cron job runs the copy of
+`deploy.sh` installed at `/usr/local/bin/spherex-deploy`, so updating the repo alone does
+not move the server. As root:
+
+```bash
+cd /srv/spherex
+sudo -H -u spherex git fetch origin
+sudo -H -u spherex git switch main
+install -m 0755 /srv/spherex/deploy/deploy.sh /usr/local/bin/spherex-deploy
+/usr/local/bin/spherex-deploy
+systemctl is-active spherex && curl -sI http://127.0.0.1:8501 | head -1
+journalctl -u spherex -n 50 --no-pager | grep -i traceback || echo 'no tracebacks'
+```
+
+To go back: `BRANCH=production /usr/local/bin/spherex-deploy` after
+`sudo -H -u spherex git switch production`.
+
 ## Integrating the teammate's frontend
 
 ```bash
 git fetch origin frontend
+git switch main
 git merge --no-ff origin/frontend
-git push origin production
+git push origin main
 ```
-
-Later, to keep `production` a clean fast-forward of `frontend`, cherry-pick the
-production cleanup onto `frontend` and reset `production` to `origin/frontend`.
 
 ## Troubleshooting
 

@@ -104,7 +104,7 @@ both need the network and take long.
 ## Deployment
 
 For a public demo on an Ubuntu droplet (systemd + nginx + an auto-deploy cron job following
-`production`), see `deploy/README.md`. The short version:
+`main`), see `deploy/README.md`. The short version:
 
 ```
 bash deploy/bootstrap.sh          # as root on the server
