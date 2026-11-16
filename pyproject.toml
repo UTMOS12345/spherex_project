@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,12 +8,26 @@ version = "1.0.0"
 description = "SPHEREx Flipbook: watch a patch of sky change in NASA SPHEREx images, with overlays, light curves and spectra"
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [{ name = "PARAMOST team" }]
-keywords = ["astronomy", "SPHEREx", "infrared", "proper motion", "streamlit"]
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [
+    { name = "UTMOS12345" },
+    { name = "Jumanov Shavkat" },
+]
+keywords = ["astronomy", "SPHEREx", "NASA", "IRSA", "infrared", "proper motion", "light curve",
+            "spectrum", "astropy", "streamlit", "space-apps"]
 classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Education",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Astronomy",
-    "Framework :: Streamlit",
+    "Topic :: Scientific/Engineering :: Visualization",
 ]
 # Lower bounds, not pins: the newest versions need Python 3.12, older ones keep 3.10 and 3.11
 # working. requirements.txt keeps the exact versions the server and the Docker image use.
@@ -37,7 +51,10 @@ test = ["pytest>=8"]
 paramost = "paramost.cli:main"
 
 [project.urls]
-Source = "https://github.com/UTMOS12345/spherex_project"
+Homepage = "https://github.com/UTMOS12345/spherex_project"
+Repository = "https://github.com/UTMOS12345/spherex_project"
+Issues = "https://github.com/UTMOS12345/spherex_project/issues"
+Changelog = "https://github.com/UTMOS12345/spherex_project/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
 packages = ["paramost", "spherex"]
