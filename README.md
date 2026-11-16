@@ -62,6 +62,28 @@ Options: `paramost --port 8502`, `--no-browser`, `--offline` (only data already 
 `paramost --version`. From a source checkout: `pip install -e ".[test]"` and
 `python -m paramost`.
 
+### If install fails
+
+- **Python version.** CI tests Python 3.11 and 3.12. Installing and starting the app was also
+  checked on 3.13 and 3.14. Older than 3.10 does not work. Check with `python3 --version`, and
+  pick another version by name (`python3.12 -m venv .venv`, or `pipx install --python
+  python3.12 git+https://...`).
+- **`pipx: command not found`.** pipx is not installed. Use the virtual-environment method
+  above, or install pipx from your system's packages (`sudo apt install pipx`,
+  `sudo pacman -S python-pipx`, `brew install pipx`). On many Linux systems,
+  `pip install --user pipx` is refused with `externally-managed-environment`; that is the
+  system protecting its own Python, not a problem with this app.
+- **`error: externally-managed-environment` from `pip install`.** You are installing into the
+  system Python. Create and activate a virtual environment first (see above).
+- **Docker: `Cannot connect to the Docker daemon`.** Docker is installed but not running.
+  Check with `docker info`, and start it (`sudo systemctl start docker`, or open Docker
+  Desktop).
+- **Docker: `error from registry: denied`** when running `ghcr.io/utmos12345/paramost`. The
+  ready-made image is not published (yet). Build it from the repository instead, with the
+  `docker build` command above.
+- **Docker: `couldn't find remote ref master`.** Add `#main` to the repository URL, as in the
+  command above.
+
 ## What it does
 
 Every SPHEREx visit of the position is cleaned and stacked onto one fixed sky grid. The app then
