@@ -97,6 +97,8 @@ are not affected.
 |---|---|
 | `api.set_demo_mode(on)` | `True`: no downloads; frames not in `cache/` are skipped; every server call gets one try with a 20 s deadline. Also set by the environment variable `SPHEREX_DEMO=1`. |
 | `api.demo_mode()` | `True` when demo mode is on. |
+| `api.count_downloads(fn, *args, **kwargs)` | dict `missing`, `total`: how many images the api call `fn(*args, **kwargs)` would download (and use), without downloading or measuring anything. A new target is searched on IRSA first. For picture kinds `banddiff` / `rgb` count `epochs()` per detector. 0 in demo mode. |
+| `SPHEREX_DOWNLOAD_WORKERS` | environment variable: how many cutouts download at once (default 6; 1 = one after another). Results and file names are the same for any value. |
 | `api.defaults(text)` | dict `detector`, `band` (µm), `tol` (µm) for a target: the cached settings for the five test targets (`api.DEMO_DEFAULTS`), else `api.OTHER_DEFAULTS` (D2, 1.6, 0.02). |
 | `api.MAX_FOV` | 10.0: the largest field of view in arcmin. |
 | `api.TIME_STEPS` | `{"per visit": 60, "monthly": 30, "weekly": 7, "every frame": 0}`: labels and `days` values for a time-step picker. |
@@ -393,7 +395,7 @@ Catch both: `except ValueError as e: st.warning(str(e))`, then `except Exception
 | Overlay (catalogues cached) | 0.2-0.3 s |
 | Light curve | 3-6 s |
 | Spectrum, latest visit / every visit | 5-8 s / 9-23 s |
-| New target, or images not in `cache/` (demo mode off) | minutes (downloads from IRSA, one at a time) |
+| New target, or images not in `cache/` (demo mode off) | minutes (downloads from IRSA, `SPHEREX_DOWNLOAD_WORKERS` at a time) |
 
 `clip=False` builds a separate set of stacks (same time again the first time).
 
