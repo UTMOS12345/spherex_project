@@ -517,18 +517,14 @@ def video_panel():
         mode = st.radio("mode", MODES, horizontal=True, key="mode")
         c1, c2 = st.columns([3, 2])
         fps = c1.slider("pictures per second", 1, 8, 3, key="fps",
-                        help="Playback speed only: it changes nothing in the pictures "
-                             "themselves.")
+                        help="Playback speed only; the pictures stay the same.")
         step = c2.selectbox("time step", STEPS,
                             index=STEPS.index(step_label(st.session_state["days"])),
-                            key="step", help="How long one picture may cover: one per visit, "
-                                             "per month, per week, or every single frame. Single "
-                                             "frames show fast movers such as asteroids, but "
-                                             "brightness flickers.")
+                            key="step", help="One picture per visit, month, week or single frame "
+                                             "(single frames show asteroids, but flicker).")
         st.session_state["days"] = api.TIME_STEPS[step]
         real_time = st.checkbox("real time gaps", key="real_time",
-                                help="Each picture stays on screen longer when the time to the "
-                                     "next picture is longer (up to 6 times).")
+                                help="Hold each picture in proportion to the time until the next one (up to 6x).")
     text = st.session_state["target"].strip()
     detector = st.session_state["detector"].strip() or None
     wl = st.session_state["wl"].strip() or None
@@ -1015,10 +1011,8 @@ with st.expander("options"):
     st.slider("field of view in arcmin", 2.0, float(api.MAX_FOV), step=0.5, key="fov",
               help="Width of the picture in arcminutes (one arcminute is 1/60 of a degree). "
                    "The default is 4.")
-    st.toggle("raw average (clip=False)", key="raw",
-              help="Plain average of the frames instead of the clipped mean: keeps fast movers "
-                   "and short flares, but also single-frame defects. It does not affect the "
-                   "measurements (light curve, spectrum, flags).")
+    st.toggle("raw average (no clipping)", key="raw",
+              help="Plain average instead of the clipped mean: keeps flares and fast movers, and also defects.")
 
 if LIVE:
     st.caption("live mode: new targets and settings may download from IRSA (this can take "
