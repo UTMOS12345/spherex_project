@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-shot setup on a fresh Ubuntu 22.04/24.04 droplet. Run as root.
+# One-shot setup on a fresh Ubuntu 22.04/24.04 server. Run as root.
 #
 #   git clone --branch main https://github.com/UTMOS12345/spherex_project.git /srv/spherex
 #   bash /srv/spherex/deploy/bootstrap.sh
@@ -68,4 +68,4 @@ chmod 0644 /etc/cron.d/spherex-deploy
 
 echo
 echo "SPHEREx is running on http://$(hostname -I | awk '{print $1}')/"
-echo "Next: fill $CACHE_DIR (rsync or tools/prepare_demo.py), then point DNS at the droplet."
+echo "Next: fill $CACHE_DIR (rsync or tools/prepare_demo.py), then point DNS at the server."

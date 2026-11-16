@@ -1,55 +1,21 @@
 # SPHEREx Flipbook
 
-NASA Space Apps Challenge 2026, "Planet X and SPHEREx".
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
+[![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-green)](LICENSE)
+[![tests](https://github.com/UTMOS12345/spherex_project/actions/workflows/tests.yml/badge.svg)](https://github.com/UTMOS12345/spherex_project/actions/workflows/tests.yml)
+[![Docker](https://img.shields.io/badge/docker-ghcr.io%2Futmos12345%2Fparamost-2496ED?logo=docker&logoColor=white)](https://github.com/UTMOS12345/spherex_project/actions/workflows/docker.yml)
 
-Type a sky position (RA and Dec, or a name) and see the SPHEREx images of that patch of sky
-as a little video, one picture per SPHEREx visit, so that anything that moved or changed
-brightness stands out. Around the video: difference pictures, colour pictures from the six
-detectors, Gaia DR3 and CatWISE2020 overlays with proper-motion arrows, light curves, spectra
-measured on the fly from all 102 SPHEREx channels, and the contamination flags of the data.
+![Barnard's Star moving across three SPHEREx visits, Aug 2025 to Aug 2026](docs/img/barnards_star.gif)
 
-![Barnard's Star in difference mode: the later visit minus the first, red where it is now, blue where it was](docs/img/video_difference.png)
+**Type a star name or sky position and watch that patch of sky change across NASA SPHEREx
+visits: motion, brightness changes and spectra, straight from the IRSA archive.**
 
-*Barnard's Star, the fastest-moving star in the sky, in the app's video player (difference
-mode, D2, 2026-08-22 minus 2025-08-26): red where it is now, blue where it was a year earlier;
-the green circle is its predicted position.*
+*Barnard's Star, the fastest-moving star in the sky, in three SPHEREx visits (detector D2,
+2′ field). The green circle is where its proper motion puts it on each date.*
 
-The data side is the Python package `spherex/`; `spherex/api.py` is the interface the web app
-calls (see `docs/API.md`). `paramost/app.py` is the Streamlit web app; `paramost` starts it.
-
-## How it meets the challenge
-
-- **Core: RA/Dec in, a video of that patch out.** Names, decimal degrees and sexagesimal
-  (`08h55m10.831s -7d14m42.53s`, also `RA 08h55m10.831s, Dec -7d14m42.53s`) are accepted.
-  Every visit is stacked onto one fixed sky grid, so a moving object changes position between
-  pictures. A green circle shows where the target should be on each date, using its proper
-  motion. A new position downloads its images from IRSA first (about 1-3 min for a video);
-  after that it opens from the cache.
-- **1. Easy to update with new data releases.** The list of SPHEREx releases is read from
-  IRSA each time a new target is searched; new Quick Releases (QRn) and Data Releases (DRn)
-  are picked up without code changes, and when an exposure is in several releases the best
-  one is used (DR before QR, newer before older). `api.visits(text, refresh=True)` searches
-  again for a cached target.
-- **2. The 102 bands, combined detectors, spectra on the fly.** Pictures from one detector,
-  a sum of detectors (`D5+D6`, `all`), or a wavelength range (`4.4-4.7` µm); a colour picture
-  (D6, D3, D1 as red, green, blue); a "band difference" (D6 minus scaled D2) in which ordinary
-  stars cancel and cold objects remain. Spectra are measured from the images when asked:
-  each frame sees the target at its own wavelength, and the measurements are averaged into
-  the 102 channels, for the latest visit or for every visit.
-- **3. Adding and subtracting images taken at different times.** All visits added (deep
-  picture); latest minus first visit; a video of each visit minus the first; a video of each
-  visit minus the average of the others (only changes remain).
-- **4. User-chosen field of view.** 1 to 10 arcmin.
-- **5. Overlays from other telescopes.** Gaia DR3 and CatWISE2020 sources moved to the date of
-  the picture, with arrows for significant proper motions (CatWISE motions only at ≥ 5 sigma
-  and without artefact flags). Known asteroids from IMCCE SkyBoT when that service is reachable.
-- **6. Coordinates in the URL.** The app reads and writes `?target=...&detector=...&fov=...`.
-- **7. Metadata such as contamination flags.** A flags view shows one exposure as observed and
-  as cleaned, with every flag and the share of pixels that carry it; light-curve tables list the
-  flags inside the measuring circle and the data release of each point; the visits table lists
-  frames per detector and releases per visit.
-- **8. Public tools.** Astropy (coordinates, WCS, time, FITS, statistics), astroquery (IRSA,
-  Gaia, SIMBAD, SkyBoT), reproject and photutils. Aladin Lite (CDS) is used only for the optional sky viewer.
+Built for the **NASA Space Apps Challenge 2026 - Planet X and SPHEREx**. Without installing
+anything, you can browse the [gallery](docs/index.html) (static, also served by GitHub Pages)
+and the [tutorial notebook](notebooks/tutorial.ipynb).
 
 ## Install
 
@@ -60,69 +26,154 @@ pipx install git+https://github.com/UTMOS12345/spherex_project.git
 paramost
 ```
 
-`paramost` opens the app in your browser at http://localhost:8501. Python 3.10 or newer; the
-newest dependency versions need 3.12.
-
-**With Docker** (nothing to install besides Docker):
+**With Docker:**
 
 ```
-docker build -t paramost .                                     # or, once v1.0.0 is published:
-docker run -p 8501:8501 -v paramost-cache:/data/cache paramost   # ghcr.io/utmos12345/paramost:1.0.0
+docker run -p 8501:8501 -v paramost-cache:/data/cache ghcr.io/utmos12345/paramost:1.0.0
 ```
 
-then open http://localhost:8501. Downloads stay in the `paramost-cache` volume.
+(or build it yourself: `docker build -t paramost .`). Then open http://localhost:8501.
 
-**From a source checkout** (to change the code):
+> **The first view of a target downloads its images from NASA's archive (IRSA), which takes
+> about 1-3 minutes. After that it opens instantly**, also after a restart: the images and the
+> computed results stay in a local cache. The app shows how many images a view needs and waits
+> for you to press **download**. Nothing is downloaded before that.
 
-```
-python -m venv .venv
-.venv/bin/pip install -e ".[test]"        # or: pip install -r requirements.txt (exact versions)
-.venv/bin/python -m paramost
-```
+Python 3.10 or newer. Options: `paramost --port 8502`, `--no-browser`, `--offline` (only data
+already downloaded), `--cache-dir PATH`, `paramost cache-info` (where the cache is, its size,
+which targets), `paramost --version`. From a source checkout: `pip install -e ".[test]"` and
+`python -m paramost`.
 
-Options: `paramost --port 8502`, `--no-browser`, `--offline`, `--cache-dir PATH`,
-`paramost cache-info` (where the cache is, how big, which targets), `paramost --version`.
+## What it does
 
-## First run
+Every SPHEREx visit of the position is cleaned and stacked onto one fixed sky grid. The app then
+shows the results in several views:
+- **Video:** one picture per visit, as a player or an animated GIF, in three modes: normal,
+  each visit minus the first, or each visit minus the mean.
+- **Pictures:** difference pictures (later minus earlier), deep stacks, colour (RGB) pictures
+  from three detectors, and a "band difference" in which ordinary stars cancel and cold objects
+  remain.
+- **Overlays:** Gaia DR3 and CatWISE2020 sources, moved to the picture's date, with
+  proper-motion arrows. Known asteroids come from SkyBoT when that service answers.
+- **Light curve:** at one wavelength.
+- **Spectrum:** measured on the fly from the images, binned into the 102 SPHEREx channels,
+  for the latest visit or for every visit.
+- **Flags view:** the data-quality flags of each exposure.
 
-A new install starts with an empty screen: a search box and one line, "Type a star name or
-coordinates. The first view downloads from NASA's archive (about 1-3 min); after that it opens
-instantly." Nothing is downloaded until you ask:
+You can type a name, decimal degrees or sexagesimal coordinates, choose a field of view of
+1-10′, and copy the link: the URL keeps the target and settings.
 
-1. Type a name (`WISE 0855`, `Barnard's Star`) or coordinates (`133.795 -7.245`,
-   `08h55m10.8s -07d14m42.5s`).
-2. The archive is searched for SPHEREx frames of that position, and the view says how many images
-   it needs, for example "this view needs 62 images from IRSA that are not downloaded yet
-   (about 1-3 min)", with a **download** button. Nothing starts before you press it; a progress
-   bar with the time left runs while it downloads (6 images at a time).
-3. The result (stacked visits, light curve, spectrum) is saved in the cache, so the same view
-   opens instantly the next time, also after restarting the app.
+![Barnard's Star in difference mode: red where it is now, blue where it was](docs/img/video_difference.png)
+
+*The video player in difference mode (Barnard's Star, D2, 2026-08-22 minus 2025-08-26): red
+where the star is now, blue where it was a year earlier.*
 
 Targets you have downloaded appear on the start screen under **your targets**, newest first,
-with the date you last looked and their size on disk. A button opens the target with the
-settings you last used; **remove** (after a confirmation) deletes its images and saved
-results.
+with their size on disk. A button reopens a target with the settings you last used; **remove**
+deletes its files after asking. The **Offline** toggle (or `paramost --offline`) uses only data
+already on your computer.
 
-![The start screen: search box, the one-line hint, and two downloaded targets with their size](docs/img/start_screen.png)
+![The start screen: search box, hint and downloaded targets](docs/img/start_screen.png)
 
-Light curves and spectra carry their caveats on the figure. WISE 0855 at 4.5 µm: the points
-were measured at slightly different wavelengths, and a Gaia star 6″ away falls inside the
-measuring circle:
+Light curves and spectra carry their caveats on the figure itself:
 
-![WISE 0855 light curve at 4.5 micron with its warnings](docs/img/light_curve.png)
+![WISE 0855 light curve at 4.5 µm with its warnings](docs/img/light_curve.png)
 
-## Offline mode
+## Results on the five challenge targets
 
-The **Offline** toggle at the top (or `paramost --offline`, or `?offline=1` in the link) uses
-only data already on this computer: nothing is downloaded, and a target without images says
-"Not downloaded yet". Turn it off to download. A server for a public demo sets
-`SPHEREX_DEMO=1`, which starts the app offline and hides the remove buttons (see
-[docs/deploy.md](docs/deploy.md)).
+Images below come from the app's own output. Barnard's Star and WISE 0855 were rendered fresh
+for this release (version 1.0.0) from the local cache. The other three were rendered on
+2026-11-14 by an earlier version of this code (commit `a7fc410`), from the full data cached at
+that time. More in the [gallery](docs/index.html).
+
+| | |
+|---|---|
+| **Barnard's Star**: the fastest-moving star in the sky moves about 11″ in a year, so the difference picture shows a clear red/blue pair. It **saturates** SPHEREx, so its light curve and spectra are lower limits. | ![Barnard's Star difference picture](docs/img/gallery/barnard_s_star/difference.png) |
+| **WISE 0855**: the coldest known brown dwarf, seen only at 4-5 µm. A G = 16.3 star 4-6″ away (WISE 0855 moves past it) falls inside the 12″ measuring circle. Below about 3 µm the spectrum is that **neighbour**, and the figures say so. Its first visit has only 3 frames ("few frames: unreliable"). | ![WISE 0855 spectrum](docs/img/gallery/wise_0855/spectrum.png) |
+| **Epsilon Indi B**: a nearby brown-dwarf pair moving about 4.7″ per year, which shows as a red/blue pair at 4.2 µm. The 10% rise in its last light-curve point is explained by wavelength (4.195 vs 4.211-4.213 µm on a steep spectrum), not by variability. | ![Epsilon Indi B light curve](docs/img/gallery/epsilon_indi_b/light_curve.png) |
+| **RW Aur**: a young variable star, about 50% brighter at 0.9 µm in the last visit than in the first two (154 and 157 mJy, then 232 mJy). Field stars in the same frames stay within 1-3%. | ![RW Aur difference picture](docs/img/gallery/rw_aur/difference.png) |
+| **R Draconis**: a pulsating red giant, **saturated** in every channel measured. Its light curve is a **single** lower limit, and the brightness change shows only in the star's wings. | ![R Draconis light curve](docs/img/gallery/r_draconis/light_curve.png) |
+
+The honest limits:
+- **Saturated cores have no data.** Pictures fill them from the surrounding pixels, and
+  brightnesses are lower limits.
+- **Neighbours inside the measuring circle** are reported only for Gaia stars. Infrared-only
+  sources are not checked.
+- **Light curves are sparse.** A light curve uses only frames where the target falls within
+  ±0.02 µm of the chosen wavelength, which gives 1-5 points per target.
+
+## Hard problems we solved
+
+- **Two flag formats.** QR2 files (pipeline v20/v24) list their flag bits as `MP_<NAME>`
+  header keywords. QR3 and DR1 files (pipeline v27) use `MSKNnnnn = '<NAME>'`.
+  `spherex/clean.py` reads either one, and falls back to the bit numbers of the SPHEREx
+  Explanatory Supplement. Without that, no flag would be recognised and every bad pixel would
+  pass as good.
+- **Saturated stars.** A star bright enough to saturate gives a core of OVERFLOW pixels (with
+  "early overflow", OVERFLOW plus SUR_ERROR, at the very centre), surrounded by a ring of
+  TRANSIENT and BLOOM pixels from charge blooming (Fazar et al. 2026,
+  [arXiv:2608.09862](https://arxiv.org/abs/2608.09862), section 3). Masking all of that turns
+  every bright star into a large hole. For pictures and stacks, the cleaning forgives those
+  flags on pixels of known stars near an OVERFLOW pixel. The core has no value in the file
+  (NaN) and stays empty. Photometry does not use the forgiven pixels: it reports a saturated
+  star as a lower limit from its unsaturated wings.
+- **WISE 0855's catalogue epoch is 2010.4, not 2000.0.** Its position is a WISE measurement from
+  about 2010.4 (the name WISE J085510.83-071442.5 encodes it). With its 8″ per year motion, the
+  wrong epoch would put the predicted position many pixels off.
+- **Sigma-clipped stacking, with the raw option kept.** Where 4 or more frames cover a pixel, a
+  4-sigma clipped mean (median centre, MAD spread) rejects values that disagree with the other
+  frames, so one bad frame cannot create a fake source. Where 2 or 3 frames cover it, the
+  median is used. `clip=False` keeps the plain average, which fast asteroids and short flares
+  need (clipping suppresses sources seen in only a minority of frames).
+- **Light curves across releases and wavelengths.** Each frame sees the target at its own
+  wavelength. A light curve therefore uses a narrow ±0.02 µm window and labels every point with
+  its wavelength. Each data release gets its own marker. Warnings cover mixed releases (DR1 vs
+  QR3 calibration), wavelength spread, saturation and neighbours. When an exposure is in
+  several releases, DR is used before QR, and newer before older.
+- **Parallel downloads.** Six cutouts download at once (`SPHEREX_DOWNLOAD_WORKERS`). For 62
+  images that took **110 s instead of 799 s**, and the files were byte-identical.
+- **PSF stripping.** IRSA's cutout service always includes the PSF layer, which the app never
+  uses. It is dropped after download, which makes cutouts **93% smaller**
+  (`tools/strip_psf.py` slims old ones).
+- **Saved results.** Stacks, light curves and spectra are saved on disk, keyed by every setting
+  and by the exact frame list. Figures drawn from them are identical to a fresh computation.
+  WISE 0855 opens in **3.4 s from disk vs 11.3 s computed**. A result built while images were
+  missing is never saved.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    A["find<br/>targets.py, frames.py<br/>name or RA/Dec to frames (IRSA SIA)"] --> B["download / cache<br/>download.py, net.py<br/>parallel cutouts, PSF dropped"]
+    B --> C["clean<br/>clean.py<br/>ZODI subtracted, flags masked"]
+    C --> D["stack<br/>epochs.py, combine.py<br/>one sky grid, sigma clipping"]
+    D --> E["compare / measure<br/>diff.py, photometry.py, spectrum.py,<br/>gaia.py, wise.py, plots.py"]
+    E --> F["spherex.api<br/>api.py, results.py<br/>one call per view, saved results"]
+    F --> G["app<br/>paramost/app.py<br/>Streamlit, paramost command"]
+```
+
+`spherex/` is the library and never imports from `paramost/` or `tools/`. Its interface for
+the app is `spherex/api.py`, documented in [docs/API.md](docs/API.md).
+
+## Using the library directly
+
+```python
+from spherex import api, set_style
+
+set_style()                                         # one look for every figure
+print(api.visits("WISE 0855"))                      # visits, frames per detector, releases
+gif = api.flipbook("WISE 0855", detector="D6", fov=4.0)
+open("wise0855.gif", "wb").write(gif)               # one picture per visit
+fig, lc = api.light_curve_figure("WISE 0855", band=4.5, tol=0.02)
+fig.savefig("wise0855_light_curve.png")
+print(lc.meta.get("warning"))                       # the caveats, in words
+fig, spec = api.spectrum_figure("WISE 0855")        # latest visit, 102 channels
+fig.savefig("wise0855_spectrum.png")
+```
+
+The [tutorial notebook](notebooks/tutorial.ipynb) walks through every view.
 
 ## Where the cache lives
-
-Everything downloaded or computed (images, frame lists, catalogue cones, saved results and the
-`targets.json` index behind "your targets") lives in one folder:
 
 | installed with | cache folder |
 |---|---|
@@ -130,140 +181,50 @@ Everything downloaded or computed (images, frame lists, catalogue cones, saved r
 | pipx / pip on macOS | `~/Library/Caches/paramost` |
 | pipx / pip on Windows | `%LOCALAPPDATA%\paramost\Cache` |
 | Docker | `/data/cache` in the container (the volume) |
-| a source checkout | `cache/` in the checkout (an existing cache is never moved) |
+| a source checkout | `cache/` in the checkout |
 
-`paramost --cache-dir PATH` or `SPHEREX_CACHE=PATH` uses another folder; `paramost cache-info`
-prints the folder and its size. A target's images take about 0.4 MB each, so a target with 60
-to 120 images needs 25-50 MB. The cache can be capped:
+`--cache-dir PATH` or `SPHEREX_CACHE=PATH` chooses another folder. A target needs about 25-50 MB
+(0.4 MB per image). `SPHEREX_CACHE_MAX_GB`, `SPHEREX_CACHE_POLICY` (`evict` or `stop`) and
+`SPHEREX_CACHE_TTL_DAYS` cap the image cache.
 
-- `SPHEREX_CACHE_MAX_GB` (float, unset = unlimited): size cap over the downloaded images.
-- `SPHEREX_CACHE_POLICY` (`evict` default | `stop`): `evict` deletes the least recently used
-  images after new downloads to stay under the cap; `stop` never deletes and refuses new
-  downloads when full.
-- `SPHEREX_CACHE_TTL_DAYS` (float): delete images older than this many days.
-- `SPHEREX_DOWNLOAD_WORKERS` (default 6): images downloaded at once.
+To uninstall, run `pipx uninstall paramost` and delete the cache folder. With Docker, also run
+`docker volume rm paramost-cache`.
 
-## Uninstall
+There is no public instance. To host your own, see [docs/deploy.md](docs/deploy.md).
 
-```
-pipx uninstall paramost
-```
+## Repository
 
-and delete the cache folder from the table above (for example `rm -rf ~/.cache/paramost`) to
-free the disk space. With Docker: `docker rm` the container, `docker volume rm paramost-cache`
-and `docker rmi paramost`.
+- `spherex/`: the library.
+- `paramost/`: the app (`app.py`), the `paramost` command (`cli.py`) and the "your targets"
+  index (`index.py`).
+- `tools/`: scripts for a source checkout.
+- `tests/`: unit tests, no network needed (`pytest`).
+- `notebooks/`: the tutorial.
+- `docs/`: the API guide, self-hosting and the gallery.
+- `deploy/`: the systemd, nginx and cron files for self-hosting.
+- See also [CONTRIBUTING.md](CONTRIBUTING.md), [ROADMAP.md](ROADMAP.md) and
+  [CHANGELOG.md](CHANGELOG.md).
 
-## What works (verified on cached data of the five test targets)
+## Team
 
-- Target lookup: the five test targets by name and common aliases; decimal degrees and
-  sexagesimal coordinates, with or without `RA`/`Dec` labels and a comma. Coordinates within
-  10″ of a test target's catalogue, Gaia DR3 (2016.0) or present-day position use its proper
-  motion.
-- Frame search results merged across DR1 and QR3; cutouts read from the cache.
-- Cleaning: ZODI subtraction and masking of flagged pixels (both FLAGS header formats).
-- Stacking each visit onto one sky grid. Where 4 or more frames cover a pixel, a sigma-clipped
-  mean (4 sigma, median centre, MAD spread) rejects values that disagree with the other frames,
-  so a single bad frame cannot create a fake source; where 2 or 3 frames cover it, the median;
-  one frame is used as it is. Each visit reports `n_min` (fewest frames under the centre of the
-  picture) and `clipped_fraction` (share of values rejected, 1-4% on the test targets); pictures
-  from fewer than 4 frames are titled "few frames: unreliable". `clip=False` gives the plain
-  average of the frames instead (identical to the stacks before the clipping was added).
-- The video as an animated GIF and as an interactive player page (play, pause, step, slider),
-  in three modes: normal, difference (each visit minus the first), minus-mean.
-- Pictures: one visit, deep (all visits), pair difference (always the later visit minus the
-  earlier: red = brighter later, blue = brighter earlier), band difference (red = brighter in D6,
-  blue = brighter in scaled D2), RGB.
-- Combined detectors (`D5+D6`, `all`) and wavelength-range pictures (`4.4-4.7`).
-- Gaia DR3 and CatWISE2020 overlays with proper-motion arrows and a catalogue check of the target.
-- Light curve at one wavelength: one average per SPHEREx visit, one marker per data release, each
-  point labelled with the wavelength it was measured at, lower limits for saturated stars, and
-  warnings for saturation, neighbouring stars in the measuring circle, mixed data releases,
-  points measured at different wavelengths, and wide wavelength windows.
-- Spectrum of the latest visit and of every visit, with lower limits only for saturated
-  measurements (a mostly masked measuring circle is shown as "masked: not measured"), and a
-  mixed-release note on the every-visit spectrum.
-- Flags view and visits table.
-- Offline (demo) mode: every view above runs with the network switched off.
+- **UTMOS12345** ([@UTMOS12345](https://github.com/UTMOS12345))
+- **Jumanov Shavkat** ([@ShavkatJumanov](https://github.com/ShavkatJumanov))
 
-In the code but not verified here: the asteroid overlay (needs IMCCE SkyBoT online) and
-`refresh=True`.
+**AI assistance:** much of the code, tests and documentation was written with Claude Code
+(Anthropic), under the team's direction.
 
-## The five test targets
+## Credits
 
-- **Barnard's Star** (3 visits, Aug 2025 to Sep 2026). The fastest-moving star in the sky: in the
-  difference video it leaves a clear red/blue pair, and the green circle follows it about 11″ in
-  a year. It is saturated in SPHEREx, so its light curve and spectra are lower limits.
-- **Epsilon Indi B** (4 visits). A nearby brown-dwarf pair moving about 4.7″ per year; the motion
-  pair is clear in the difference picture at 4.2 µm. Its light curve rises 10% in the last visit.
-  The step coincides with the change from DR1 to QR3 data, but it is explained by wavelength: the
-  last point was measured at 4.195 µm, the earlier ones at 4.211 and 4.213 µm, on a steep part of
-  the spectrum. At matched wavelengths the two releases agree within about 2%. The figure shows
-  each point's wavelength and warns about both the spread and the mixed releases.
-- **WISE 0855** (3 visits, all DR1). The coldest known brown dwarf, faint and only seen at 4-5 µm.
-  The CatWISE overlay shows its 8″ per year motion. A G = 16.3 star lies 4-8″ away, inside the
-  measuring circle: its spectrum below about 3 µm is that star, and its light curve is affected.
-  The figures carry this warning and name the neighbour as the main light source where WISE 0855
-  is faint. Its first visit has only 3 frames, so pictures that use it are marked
-  "few frames: unreliable".
-- **RW Aur** (3 visits). A young variable star: brighter by about 50% at 0.9 µm in the last visit
-  than in the first two. Field stars in the same frames stay within 1-3%, so the change is real.
-- **R Draconis** (6 visits; D3 images in 3 of them). A pulsating red giant, saturated in every
-  channel measured: the pictures show a filled core, the light curve has a single lower limit, and the
-  difference video shows the brightness change only in the star's wings.
+- **SPHEREx** data from the NASA/IPAC Infrared Science Archive (**IRSA**), operated by
+  Caltech/IPAC under contract with NASA.
+- **Gaia DR3**, from the ESA mission Gaia, processed by the Gaia Data Processing and Analysis
+  Consortium (Gaia Collaboration, Vallenari et al. 2023, A&A 674, A1).
+- **CatWISE2020** (Marocco et al. 2021, ApJS 253, 8), via IRSA.
+- **SkyBoT**, IMCCE, Observatoire de Paris (Berthier et al. 2006).
+- **SIMBAD** and the **Sesame** name resolver, CDS, Strasbourg (Wenger et al. 2000).
+- **Aladin Lite** (CDS), for the optional sky viewer.
+- **Software:** astropy, astroquery, photutils, reproject, numpy, scipy, matplotlib, streamlit
+  and platformdirs.
 
-## Known limits
-
-- **Saturated stars** (Barnard's Star, R Draconis, partly RW Aur): their cores have no data and
-  are filled from the surrounding pixels in pictures; brightnesses are lower limits.
-- **Neighbouring stars**: SPHEREx pixels are 6.15″ and the measuring circle is 12″ in radius.
-  Gaia stars inside it are reported; stars only bright in the infrared are not checked.
-- **Mixed data releases**: light curves and per-visit spectra can combine DR1 and QR3 frames,
-  whose calibration can differ by several percent. Both say so on the figure and in the warning.
-- **Wavelength differences within a light curve**: each point is measured where the target falls
-  within ±0.02 µm of the chosen wavelength, so points can differ by up to 0.04 µm. On a steep
-  spectrum that alone changes the flux by several percent (Epsilon Indi B: about 10%). The figure
-  labels every point's wavelength and warns when they differ by more than 0.01 µm.
-- **Stacking hides short events**: the sigma clipping suppresses sources that are in only a
-  minority of a visit's frames: an asteroid moving about one pixel (3″) per frame keeps about a
-  third of its light, a flare seen in 6 of 21 frames about three quarters. `clip=False` (plain
-  average) or weekly pictures (`days=7`) show them, along with any single-frame defects.
-- **Few frames**: with 2 frames per pixel the median is the mean of the two, so a bad value still
-  shows; pictures resting on fewer than 4 frames are marked "few frames: unreliable".
-- **Sparse light curves**: a light curve uses only frames where the target falls within
-  ±0.02 µm of the chosen wavelength, so a target has 1-5 points.
-- **First view of a new target**: searching IRSA and downloading 50-120 images takes about 1-3
-  minutes (6 at a time; one at a time took 13 minutes for 62 images). When IRSA does not
-  answer, the app says so and tries again on the next request.
-- **Field of view** up to 10′ (larger views would need bigger downloads).
-- **Runs on your computer**: the app is meant to be installed locally; a hosted demo is
-  optional (docs/deploy.md).
-
-## Data and credits
-
-This tool uses:
-- SPHEREx data from the NASA/IPAC Infrared Science Archive (IRSA), operated by Caltech/IPAC under
-  contract with NASA.
-- Gaia DR3 from the ESA mission Gaia, processed by the Gaia Data Processing and Analysis
-  Consortium (Gaia Collaboration, Vallenari et al. 2023, A&A 674, A1), via IRSA and the ESA Gaia archive.
-- CatWISE2020 (Marocco et al. 2021, ApJS 253, 8), via IRSA.
-- SIMBAD, operated at CDS, Strasbourg (Wenger et al. 2000), and the CDS Sesame name resolver.
-- Aladin Lite (CDS, Strasbourg), for the optional sky viewer around the target.
-- SkyBoT, IMCCE, Observatoire de Paris (Berthier et al. 2006).
-- Astropy, astroquery, reproject, photutils, NumPy, SciPy, Matplotlib, Streamlit and platformdirs.
-
-## Files
-
-- `spherex/` the library; `spherex/api.py` the functions the app calls (`docs/API.md`).
-- `paramost/` the app: `app.py` (Streamlit), `cli.py` (the `paramost` command), `index.py`
-  (the "your targets" index). `app.py` at the root only forwards to it, for servers whose
-  systemd unit still starts `app.py`.
-- `tools/` command-line scripts for a source checkout (docs/deploy.md): `prepare_demo.py`,
-  `make_gallery.py`, `explore.py`, and `strip_psf.py IN OUT`, which writes copies of old
-  cutouts without their unused PSF layer (93% smaller).
-- `docs/` `API.md` (the library interface), `deploy.md` (hosting a demo server);
-  `docs/history/` earlier review notes.
-- `tests/` unit tests (`pip install -e ".[test]"`, then `pytest`; no network needed).
-- `cache/` in a source checkout: the frame lists and catalogue cones of the five test targets
-  (tracked) and whatever you download (not tracked).
-- `deploy/` systemd unit, nginx site, bootstrap and auto-deploy scripts for a server.
-- `Dockerfile`, `.github/workflows/` (tests on Python 3.11 and 3.12; the image on v* tags).
+Built for the NASA Space Apps Challenge 2026 - Planet X and SPHEREx. Licensed under
+[BSD-3-Clause](LICENSE).

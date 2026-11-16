@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "SPHEREx Flipbook (paramost)"
+abstract: >-
+  Watch a patch of sky change in NASA SPHEREx images: videos of every visit,
+  difference pictures, Gaia DR3 and CatWISE2020 overlays, light curves and
+  spectra measured from the images. Built for the NASA Space Apps Challenge
+  2026 (Planet X and SPHEREx).
+type: software
+authors:
+  - alias: UTMOS12345
+  - given-names: Shavkat
+    family-names: Jumanov
+    alias: ShavkatJumanov
+version: 1.0.0
+date-released: "2026-11-16"
+license: BSD-3-Clause
+repository-code: "https://github.com/UTMOS12345/spherex_project"
+url: "https://github.com/UTMOS12345/spherex_project"
+keywords:
+  - astronomy
+  - SPHEREx
+  - NASA
+  - IRSA
+  - infrared
+  - astropy
+  - streamlit

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pull the main branch and restart the demo.
+# Pull the main branch and restart the app.
 # Run as root (the cron entry does this) or with sudo.
 set -euo pipefail
 

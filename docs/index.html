@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPHEREx Flipbook Gallery</title>
+<meta name="description" content="What the SPHEREx Flipbook shows for the five NASA Space Apps 2026 challenge targets: videos, difference pictures, light curves and spectra from NASA SPHEREx images.">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #121212;
+    --panel: #1a1a1a;
+    --panel-2: #202020;
+    --line: #2e2e2e;
+    --text: #e8e6e3;
+    --muted: #a6a39e;
+    --accent: #5aa9ff;
+    --warn: #f0a63a;
+    --fresh: #4cc38a;
+    --archived: #b49cff;
+    --radius: 10px;
+    --gutter: 16px;
+    --max: 1180px;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  a { color: var(--accent); text-underline-offset: 2px; }
+  a:hover { text-decoration-thickness: 2px; }
+  code { font: 0.9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--panel-2);
+         padding: 0.1em 0.35em; border-radius: 4px; }
+  .wrap { max-width: var(--max); margin: 0 auto; padding: 0 var(--gutter); }
+
+  header.top { border-bottom: 1px solid var(--line); background: #0e0e0e; }
+  .top .wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+               gap: 8px 20px; padding-top: 14px; padding-bottom: 14px; }
+  .brand { font-weight: 700; letter-spacing: 0.01em; }
+  .brand span { color: var(--muted); font-weight: 400; }
+  nav.links { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 15px; }
+
+  .hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 32px;
+          align-items: center; padding: 40px 0 28px; }
+  .hero h1 { font-size: clamp(28px, 4.2vw, 42px); line-height: 1.15; margin: 0 0 14px; }
+  .hero p.lead { font-size: 18px; color: var(--text); margin: 0 0 14px; }
+  .hero p { color: var(--muted); margin: 0 0 12px; }
+  .hero figure { margin: 0; }
+  .hero img { width: 100%; max-width: 430px; display: block; margin: 0 auto; border-radius: var(--radius);
+              border: 1px solid var(--line); background: var(--panel); }
+  .hero figcaption { font-size: 14px; color: var(--muted); text-align: center; margin-top: 8px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+  .btn { display: inline-block; padding: 9px 16px; border-radius: 8px; border: 1px solid var(--line);
+         background: var(--panel-2); color: var(--text); text-decoration: none; font-weight: 600; font-size: 15px; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #0b1a2b; }
+  .btn:hover { filter: brightness(1.1); }
+
+  .install { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+             padding: 18px 20px; margin: 8px 0 8px; }
+  .install h2 { margin: 0 0 8px; font-size: 20px; }
+  .install pre { margin: 8px 0; padding: 12px 14px; background: #0c0c0c; border: 1px solid var(--line);
+                 border-radius: 8px; overflow-x: auto; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .install p { margin: 6px 0; color: var(--muted); }
+  .note { border-left: 3px solid var(--warn); padding: 2px 0 2px 12px; color: var(--text) !important; }
+
+  .toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 28px 0 4px; padding: 0; list-style: none; }
+  .toc a { display: inline-block; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px;
+           text-decoration: none; color: var(--text); background: var(--panel); font-size: 15px; }
+  .toc a:hover { border-color: var(--accent); }
+
+  section.target { border-top: 1px solid var(--line); padding: 34px 0 10px; scroll-margin-top: 10px; }
+  .target-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 6px; }
+  .target-head h2 { margin: 0; font-size: 26px; }
+  .tag { font-size: 13px; padding: 2px 9px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+  .tag.fresh { color: var(--fresh); }
+  .tag.archived { color: var(--archived); }
+  .meta { color: var(--muted); font-size: 15px; margin: 0 0 10px; }
+  .target p.story { max-width: 78ch; margin: 0 0 10px; }
+  .limits { max-width: 78ch; margin: 0 0 18px; color: var(--muted); font-size: 15px; }
+  .limits strong { color: var(--warn); font-weight: 600; }
+
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 18px; }
+  .grid figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+                 padding: 10px; display: flex; flex-direction: column; }
+  .grid figure.wide { grid-column: 1 / -1; }
+  .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .grid a.img { display: block; flex: 1; display: flex; align-items: center; justify-content: center; }
+  .grid img { max-width: 100%; height: auto; display: block; border-radius: 6px; }
+  .grid figcaption { font-size: 14px; color: var(--muted); margin-top: 8px; }
+  .grid figcaption b { color: var(--text); font-weight: 600; }
+
+  .how { border-top: 1px solid var(--line); padding: 34px 0 10px; }
+  .how h2 { margin: 0 0 10px; font-size: 24px; }
+  .how ul { padding-left: 20px; max-width: 80ch; }
+  .how li { margin: 6px 0; }
+  .shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 14px 0; }
+  .shots figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; }
+  .shots img { width: 100%; height: auto; display: block; border-radius: 6px; }
+  .shots figcaption { font-size: 14px; color: var(--muted); margin-top: 8px; }
+
+  footer { border-top: 1px solid var(--line); margin-top: 30px; padding: 22px 0 40px; color: var(--muted); font-size: 14px; }
+  footer p { margin: 6px 0; max-width: 90ch; }
+
+  @media (max-width: 980px) {
+    .grid.three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 820px) {
+    .hero { grid-template-columns: minmax(0, 1fr); gap: 20px; padding-top: 26px; }
+    .grid, .grid.three, .shots { grid-template-columns: minmax(0, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand">SPHEREx Flipbook <span>· gallery</span></div>
+    <nav class="links" aria-label="Project links">
+      <a href="https://github.com/UTMOS12345/spherex_project">Repository</a>
+      <a href="https://github.com/UTMOS12345/spherex_project#install">Install</a>
+      <a href="https://github.com/UTMOS12345/spherex_project/blob/main/notebooks/tutorial.ipynb">Tutorial notebook</a>
+      <a href="https://github.com/UTMOS12345/spherex_project/blob/main/docs/API.md">Library API</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="hero">
+    <div>
+      <h1>Watch the sky change in NASA SPHEREx images</h1>
+      <p class="lead">Type a star name or sky position, and the SPHEREx Flipbook turns every SPHEREx visit of
+        that patch of sky into a video. Anything that moved or changed brightness stands out.</p>
+      <p>Around the video, the app shows difference pictures, Gaia DR3 and CatWISE2020 overlays,
+        light curves, and spectra measured from the images in the 102 SPHEREx channels. Every
+        image on this page is the tool's own output for the five targets of the NASA Space Apps
+        Challenge 2026, <em>Planet X and SPHEREx</em>.</p>
+      <div class="cta">
+        <a class="btn primary" href="#install">Install it</a>
+        <a class="btn" href="https://github.com/UTMOS12345/spherex_project/blob/main/notebooks/tutorial.ipynb">Open the notebook</a>
+        <a class="btn" href="https://github.com/UTMOS12345/spherex_project">Source on GitHub</a>
+      </div>
+    </div>
+    <figure>
+      <img src="img/barnards_star.gif" width="700" height="854" alt="Animated: Barnard's Star in three SPHEREx visits from August 2025 to August 2026, shifting relative to the background stars">
+      <figcaption>Barnard's Star, the fastest-moving star in the sky, in three SPHEREx visits (D2, 2′ field).
+        The green circle is its predicted position on each date.</figcaption>
+    </figure>
+  </div>
+
+  <div class="install" id="install">
+    <h2>Run it on your computer</h2>
+    <pre><code>pipx install git+https://github.com/UTMOS12345/spherex_project.git
+paramost</code></pre>
+    <p>Or with Docker: <code>docker run -p 8501:8501 -v paramost-cache:/data/cache ghcr.io/utmos12345/paramost:1.0.0</code>,
+      then open <code>http://localhost:8501</code>.</p>
+    <p class="note">The first view of a target downloads its images from NASA's archive (IRSA), which
+      takes about 1-3 minutes. After that it opens instantly from the local cache. There is no
+      public instance: the app runs on your computer.</p>
+  </div>
+
+  <ul class="toc" aria-label="Targets">
+    <li><a href="#barnards-star">Barnard's Star</a></li>
+    <li><a href="#wise-0855">WISE 0855</a></li>
+    <li><a href="#epsilon-indi-b">Epsilon Indi B</a></li>
+    <li><a href="#rw-aur">RW Aur</a></li>
+    <li><a href="#r-draconis">R Draconis</a></li>
+    <li><a href="#how">How it works</a></li>
+  </ul>
+
+  <section class="target" id="barnards-star">
+    <div class="target-head">
+      <h2>Barnard's Star</h2>
+      <span class="tag fresh">rendered for v1.0.0</span>
+    </div>
+    <p class="meta">Detector D2 · 3 visits: 2025-08-26, 2026-03-17 (DR1), 2026-08-22 (QR3) · light curve at 1.3 µm</p>
+    <p class="story">The fastest-moving star in the sky, about 11″ per year. In the difference picture
+      it leaves a red/blue pair: red where it is now, blue where it was a year earlier. Every other
+      star cancels out.</p>
+    <p class="limits"><strong>Limit:</strong> it is too bright for SPHEREx. Its core saturates, so
+      the light curve and the spectrum are lower limits (triangles), measured from the
+      unsaturated wings.</p>
+    <div class="grid">
+      <figure>
+        <a class="img" href="img/gallery/barnard_s_star/video.gif"><img src="img/gallery/barnard_s_star/video.gif" loading="lazy" alt="Animated: Barnard's Star in each SPHEREx visit, 4 arcminute field"></a>
+        <figcaption><b>Video</b>: one picture per visit, 4′ field.</figcaption>
+      </figure>
+      <figure>
+        <a class="img" href="img/gallery/barnard_s_star/difference.png"><img src="img/gallery/barnard_s_star/difference.png" loading="lazy" alt="Difference picture of Barnard's Star, 2026-08-22 minus 2025-08-26: a red blob above a blue blob"></a>
+        <figcaption><b>Difference</b>: 2026-08-22 minus 2025-08-26.</figcaption>
+      </figure>
+      <figure>
+        <a class="img" href="img/gallery/barnard_s_star/light_curve.png"><img src="img/gallery/barnard_s_star/light_curve.png" loading="lazy" alt="Light curve of Barnard's Star at 1.3 micron: lower limits only"></a>
+        <figcaption><b>Light curve</b>, 1.3 ± 0.02 µm: lower limits, from two data releases.</figcaption>
+      </figure>
+      <figure>
+        <a class="img" href="img/gallery/barnard_s_star/spectrum.png"><img src="img/gallery/barnard_s_star/spectrum.png" loading="lazy" alt="Spectrum of Barnard's Star in the latest visit, as lower limits"></a>
+        <figcaption><b>Spectrum</b> of the latest visit, 102 channels (lower limits).</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="target" id="wise-0855">
+    <div class="target-head">
+      <h2>WISE 0855</h2>
+      <span class="tag fresh">rendered for v1.0.0</span>
+    </div>
+    <p class="meta">Detector D6 · 3 visits: 2025-05-05, 2025-11-16, 2026-04-27 (all DR1) · light curve at 4.5 µm</p>
+    <p class="story">The coldest known brown dwarf. It is invisible in visible light and only
+      bright at 4-5 µm, and it moves about 8″ per year. Its catalogue position is from about
+      2010.4, not 2000.0, which the predicted position takes into account.</p>
+    <p class="limits"><strong>Limits:</strong> a G = 16.3 star 4-6″ away (WISE 0855 moves past it)
+      falls inside the 12″ measuring circle. Below about 3 µm the spectrum is mostly that
+      neighbour, and the figures say so. The first visit has only 3 frames ("few frames:
+      unreliable"), and the light-curve points were measured at slightly different wavelengths
+      (4.486-4.519 µm).</p>
+    <div class="grid">
+      <figure>
+        <a class="img" href="img/gallery/wise_0855/video.gif"><img src="img/gallery/wise_0855/video.gif" loading="lazy" alt="Animated: WISE 0855 field in each SPHEREx visit at 4 to 5 micron"></a>
+        <figcaption><b>Video</b>: one picture per visit, 4′ field.</figcaption>
+      </figure>
+      <figure>
+        <a class="img" href="img/gallery/wise_0855/difference.png"><img src="img/gallery/wise_0855/difference.png" loading="lazy" alt="Difference picture of WISE 0855, latest visit minus first"></a>
+        <figcaption><b>Difference</b>: latest visit minus the first.</figcaption>
+      </figure>
+      <figure>
+        <a class="img" href="img/gallery/wise_0855/light_curve.png"><img src="img/gallery/wise_0855/light_curve.png" loading="lazy" alt="Light curve of WISE 0855 at 4.5 micron with wavelength labels and warnings"></a>
+        <figcaption><b>Light curve</b>, 4.5 ± 0.02 µm, with each point's wavelength and the warnings.</figcaption>
+      </figure>
+      <figure>
+        <a class="img" href="img/gallery/wise_0855/spectrum.png"><img src="img/gallery/wise_0855/spectrum.png" loading="lazy" alt="Spectrum of WISE 0855 in the latest visit, rising at 4 to 5 micron"></a>
+        <figcaption><b>Spectrum</b> of the latest visit: the brown dwarf shows up at 4-5 µm.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="target" id="epsilon-indi-b">
+    <div class="target-head">
+      <h2>Epsilon Indi B</h2>
+      <span class="tag archived">rendered 2026-11-14 (a7fc410)</span>
+    </div>
+    <p class="meta">Detector D5 · 4 visits (DR1 and QR3) · light curve at 4.2 µm</p>
+    <p class="story">A nearby pair of brown dwarfs moving about 4.7″ per year. The motion shows as a
+      red/blue pair in the difference picture at 4.2 µm.</p>
+    <p class="limits"><strong>Limit:</strong> the last light-curve point is 10% higher, and it is
+      also the first QR3 point. But the step is explained by wavelength, not variability: that
+      point was measured at 4.195 µm, the earlier ones at 4.211 and 4.213 µm, on a steep part of
+      the spectrum. The figure shows each point's wavelength and warns about both the spread and
+      the mixed releases.</p>
+    <div class="grid three">
+      <figure class="wide">
+        <a class="img" href="img/gallery/epsilon_indi_b/difference.png"><img src="img/gallery/epsilon_indi_b/difference.png" loading="lazy" alt="Epsilon Indi B earlier and later pictures and their difference"></a>
+        <figcaption><b>Difference</b>: earlier, later, and later minus earlier.</figcaption>
+      </figure>
+      <figure>
+        <a class="img" href="img/gallery/epsilon_indi_b/video.gif"><img src="img/gallery/epsilon_indi_b/video.gif" loading="lazy" alt="Animated: Epsilon Indi B in each SPHEREx visit"></a>
+        <figcaption><b>Video</b>: one picture per visit.</figcaption>
+      </figure>
+      <figure>
+        <a class="img" href="img/gallery/epsilon_indi_b/light_curve.png"><img src="img/gallery/epsilon_indi_b/light_curve.png" loading="lazy" alt="Light curve of Epsilon Indi B at 4.2 micron, three points labelled with their wavelengths"></a>
+        <figcaption><b>Light curve</b>, 4.2 ± 0.02 µm.</figcaption>
+      </figure>
+      <figure>
+        <a class="img" href="img/gallery/epsilon_indi_b/spectrum.png"><img src="img/gallery/epsilon_indi_b/spectrum.png" loading="lazy" alt="Spectrum of Epsilon Indi B in the latest visit"></a>
+        <figcaption><b>Spectrum</b> of the latest visit.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="target" id="rw-aur">
+    <div class="target-head">
+      <h2>RW Aur</h2>
+      <span class="tag archived">rendered 2026-11-14 (a7fc410)</span>
+    </div>
+    <p class="meta">Detector D1 · 3 visits: 2025-09-03, 2026-03-04 (DR1), 2026-09-09 (QR3) · light curve at 0.9 µm</p>
+    <p class="story">A young variable star. At 0.9 µm it measured 154 and 157 mJy in the first two
+      visits, then 232 mJy, about 50% brighter. Field stars in the same frames stay within 1-3%, so
+      the change is real. In the difference picture it is the one solid red source.</p>
+    <p class="limits"><strong>Limit:</strong> it saturates at longer wavelengths (1.6 µm), and the
+      last point comes from another data release (QR3), whose calibration can differ by a few
+      percent. That is far less than the 50% change.</p>
+    <div class="grid three">
+      <figure class="wide">
+        <a class="img" href="img/gallery/rw_aur/difference.png"><img src="img/gallery/rw_aur/difference.png" loading="lazy" alt="RW Aur earlier and later pictures and their difference: RW Aur bright red in the centre"></a>
+        <figcaption><b>Difference</b>: 2026-09-06 minus 2025-09-03, with RW Aur red in the centre.</figcaption>
+      </figure>
+      <figure>
+        <a class="img" href="img/gallery/rw_aur/video.gif"><img src="img/gallery/rw_aur/video.gif" loading="lazy" alt="Animated: RW Aur in each SPHEREx visit, brightening in the last one"></a>
+        <figcaption><b>Video</b>: one picture per visit.</figcaption>
+      </figure>
+      <figure>
+        <a class="img" href="img/gallery/rw_aur/light_curve.png"><img src="img/gallery/rw_aur/light_curve.png" loading="lazy" alt="Light curve of RW Aur at 0.9 micron rising in the last visit"></a>
+        <figcaption><b>Light curve</b>, 0.9 ± 0.02 µm.</figcaption>
+      </figure>
+      <figure>
+        <a class="img" href="img/gallery/rw_aur/spectrum.png"><img src="img/gallery/rw_aur/spectrum.png" loading="lazy" alt="Spectrum of RW Aur in the latest visit"></a>
+        <figcaption><b>Spectrum</b> of the latest visit.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="target" id="r-draconis">
+    <div class="target-head">
+      <h2>R Draconis</h2>
+      <span class="tag archived">rendered 2026-11-14 (a7fc410)</span>
+    </div>
+    <p class="meta">Detector D3 · 6 visits, with D3 images in 3 of them · light curve at 2.2 µm</p>
+    <p class="story">A pulsating red giant. Its brightness change shows in the difference picture,
+      but only in the star's wings.</p>
+    <p class="limits"><strong>Limit:</strong> it is saturated in every channel measured. The
+      pictures show a filled core, the light curve is a single lower limit (2,349 mJy at
+      2.196 µm, 2025-06-02), and the spectrum is lower limits.</p>
+    <div class="grid three">
+      <figure class="wide">
+        <a class="img" href="img/gallery/r_draconis/difference.png"><img src="img/gallery/r_draconis/difference.png" loading="lazy" alt="R Draconis earlier and later pictures and their difference"></a>
+        <figcaption><b>Difference</b>: earlier, later, and later minus earlier.</figcaption>
+      </figure>
+      <figure>
+        <a class="img" href="img/gallery/r_draconis/video.gif"><img src="img/gallery/r_draconis/video.gif" loading="lazy" alt="Animated: R Draconis in each SPHEREx visit with D3 images"></a>
+        <figcaption><b>Video</b>: the visits with D3 images.</figcaption>
+      </figure>
+      <figure>
+        <a class="img" href="img/gallery/r_draconis/light_curve.png"><img src="img/gallery/r_draconis/light_curve.png" loading="lazy" alt="Light curve of R Draconis at 2.2 micron: one lower limit"></a>
+        <figcaption><b>Light curve</b>, 2.2 ± 0.02 µm: one lower limit.</figcaption>
+      </figure>
+      <figure>
+        <a class="img" href="img/gallery/r_draconis/spectrum.png"><img src="img/gallery/r_draconis/spectrum.png" loading="lazy" alt="Spectrum of R Draconis, lower limits"></a>
+        <figcaption><b>Spectrum</b> of the latest visit (lower limits).</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="how" id="how">
+    <h2>How it works</h2>
+    <ul>
+      <li><b>Find:</b> the name or coordinates are turned into a position, with proper motion
+        when it is known. IRSA is searched for every SPHEREx frame covering it, in all data
+        releases (DR before QR, newer before older).</li>
+      <li><b>Download:</b> small cutouts, six at a time, without the unused PSF layer (93% smaller),
+        into a local cache.</li>
+      <li><b>Clean:</b> the zodiacal light is subtracted and flagged pixels are masked. Both FLAGS
+        formats are read (QR2's <code>MP_</code> keywords, and QR3/DR1's <code>MSKN</code>
+        keywords). Saturated stars are handled so they don't become holes.</li>
+      <li><b>Stack:</b> each visit is put on one fixed sky grid, with a 4-sigma clipped mean, so one
+        bad frame cannot make a fake source. The plain average is kept as an option.</li>
+      <li><b>Compare and measure:</b> difference pictures, catalogue overlays, light curves at one
+        wavelength, and spectra binned into the 102 channels, each with its caveats written on the
+        figure.</li>
+      <li><b>Save:</b> results are saved on disk, so a target opens in seconds the next time
+        (WISE 0855: 3.4 s instead of 11.3 s).</li>
+    </ul>
+    <div class="shots">
+      <figure>
+        <a href="img/video_difference.png"><img src="img/video_difference.png" loading="lazy" alt="The app's video player in difference mode for Barnard's Star"></a>
+        <figcaption>The app's video player, in difference mode.</figcaption>
+      </figure>
+      <figure>
+        <a href="img/start_screen.png"><img src="img/start_screen.png" loading="lazy" alt="The app's start screen with a search box and two downloaded targets"></a>
+        <figcaption>The start screen, with the targets you have downloaded.</figcaption>
+      </figure>
+    </div>
+    <p>To use the library from Python, see the
+      <a href="https://github.com/UTMOS12345/spherex_project/blob/main/notebooks/tutorial.ipynb">tutorial notebook</a>
+      and the <a href="https://github.com/UTMOS12345/spherex_project/blob/main/docs/API.md">API guide</a>.</p>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><b>About these images:</b> Barnard's Star, WISE 0855 and the animation at the top were
+      rendered for version 1.0.0 from the local data cache. The other three targets show the
+      app's products of 2026-11-14 (commit <code>a7fc410</code>), made from the full data cached
+      at that time; their figure style is from that version.</p>
+    <p>Built for the NASA Space Apps Challenge 2026, Planet X and SPHEREx, by UTMOS12345 and
+      Jumanov Shavkat. SPHEREx data come from the NASA/IPAC Infrared Science Archive (IRSA). Gaia
+      DR3 comes from ESA/Gaia/DPAC, and CatWISE2020 from Marocco et al. 2021. Software:
+      astropy, astroquery, photutils, reproject, numpy, matplotlib and streamlit.
+      BSD-3-Clause license.</p>
+  </div>
+</footer>
+
+</body>
+</html>

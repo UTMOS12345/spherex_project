@@ -1,13 +1,15 @@
 # Deploying the SPHEREx Flipbook
 
-Target: a fresh DigitalOcean droplet, Ubuntu 24.04, 2 vCPU / 4 GB RAM / 50+ GB disk.
+There is no public instance; this guide is for hosting your own copy.
+
+Target: a fresh Ubuntu 24.04 server (any provider), 2 vCPU / 4 GB RAM / 50+ GB disk.
 The app runs as the `spherex` system user behind nginx; a cron job follows the
 `main` branch.
 
 ## 1. Bootstrap the server
 
 ```bash
-ssh root@YOUR_DROPLET_IP
+ssh root@YOUR_SERVER_IP
 git clone --branch main https://github.com/UTMOS12345/spherex_project.git /srv/spherex
 bash /srv/spherex/deploy/bootstrap.sh
 ```
@@ -32,8 +34,8 @@ downloads; it needs the frame lists and FITS cutouts in `/srv/spherex-cache`.
 Fastest, from the machine that already has them:
 
 ```bash
-rsync -av --info=progress2 cache/ root@YOUR_DROPLET_IP:/srv/spherex-cache/
-ssh root@YOUR_DROPLET_IP 'chown -R spherex:spherex /srv/spherex-cache'
+rsync -av --info=progress2 cache/ root@YOUR_SERVER_IP:/srv/spherex-cache/
+ssh root@YOUR_SERVER_IP 'chown -R spherex:spherex /srv/spherex-cache'
 ```
 
 Or rebuild on the server (about 2 hours for the five demo targets):
@@ -47,7 +49,7 @@ LRU sweep only deletes `cache/cutouts/`, never `frames`, `gaia` or `wise`.
 
 ## 3. DNS and HTTPS
 
-Point an `A` record (for example `flipbook.example.com`) at the droplet, then:
+Point an `A` record (for example `flipbook.example.com`) at the server, then:
 
 ```bash
 sed -i 's/server_name _;/server_name flipbook.example.com;/' /etc/nginx/sites-available/spherex
