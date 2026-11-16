@@ -1,0 +1,19 @@
+# keep the build context small: no caches, venvs or git history
+cache/
+demo/
+out/
+runtime/
+.venv/
+venv/
+env/
+.git/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+docs/
+tests/
+tools/
+deploy/
