@@ -722,10 +722,14 @@ def _spectrum_table(spec, binned, visit):
 
 
 def _with_warning(fig, table, warning):
-    """Put a neighbour warning on the figure (bottom line) and in table.meta['warning']."""
+    """Put a neighbour warning on the figure (bottom lines) and in table.meta['warning'].
+    The plot is moved up far enough for the wrapped warning to sit below the axis labels."""
     if warning:
         table.meta["warning"] = warning
-        fig.subplots_adjust(bottom=max(fig.subplotpars.bottom, 0.22))
+        w_in, h_in = fig.get_size_inches()
+        n_lines = -(-len(warning) // max(1, int(w_in * 72 / (7 * 0.55))))   # ~chars per line at 7 pt
+        need = fig.subplotpars.bottom + n_lines * 7 * 1.25 / (h_in * 72) + 0.02
+        fig.subplots_adjust(bottom=max(fig.subplotpars.bottom, 0.22, need))
         fig.text(0.01, 0.01, "⚠ " + warning, fontsize=7, color="#eda100", ha="left", va="bottom", wrap=True)
     return fig, table
 
