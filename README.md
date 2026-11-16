@@ -214,6 +214,7 @@ This tool uses:
 - `app.py` the Streamlit app.
 - `tools/` command-line scripts: `prepare_demo.py`, `make_gallery.py` fill `demo/` with backup
   results; `explore.py` writes extra products to `out/`. Run them from the repo root.
+  `strip_psf.py IN OUT` writes copies of old cutouts without their unused PSF layer (~93% smaller).
 - `docs/` `API.md`; `docs/history/` earlier review notes and the cleanup plan.
 - `tests/` pytest tests (`pip install -r requirements-dev.txt`, then `pytest`).
 - `cache/` frame lists, cutouts, Gaia and CatWISE cones. Cutouts are not tracked; ship or rebuild
