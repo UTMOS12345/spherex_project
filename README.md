@@ -19,29 +19,47 @@ and the [tutorial notebook](notebooks/tutorial.ipynb).
 
 ## Install
 
-**With pipx** (recommended: the app gets its own environment and a `paramost` command):
+**With a plain virtual environment** (works everywhere and needs only Python 3.10 or newer;
+check with `python3 --version`):
+
+```
+python3 -m venv .venv && source .venv/bin/activate
+pip install git+https://github.com/UTMOS12345/spherex_project.git
+paramost
+```
+
+`paramost` opens the app in your browser at http://localhost:8501. Next time, run
+`source .venv/bin/activate` and then `paramost` (or call `.venv/bin/paramost` directly). On
+Windows, activate with `.venv\Scripts\activate`. If you have several Pythons, name one:
+`python3.12 -m venv .venv`.
+
+**With pipx** (if you have it: the `paramost` command then works from any folder, without
+activating anything):
 
 ```
 pipx install git+https://github.com/UTMOS12345/spherex_project.git
 paramost
 ```
 
-**With Docker:**
+**With Docker** (nothing else to install):
 
 ```
-docker run -p 8501:8501 -v paramost-cache:/data/cache ghcr.io/utmos12345/paramost:1.0.0
+docker build -t paramost "https://github.com/UTMOS12345/spherex_project.git#main"
+docker run -p 8501:8501 -v paramost-cache:/data/cache paramost
 ```
 
-(or build it yourself: `docker build -t paramost .`). Then open http://localhost:8501.
+Then open http://localhost:8501. Downloads stay in the `paramost-cache` volume. From version
+1.0.0 on, a ready-made image will also be published: `docker run -p 8501:8501 -v
+paramost-cache:/data/cache ghcr.io/utmos12345/paramost:1.0.0`.
 
 > **The first view of a target downloads its images from NASA's archive (IRSA), which takes
 > about 1-3 minutes. After that it opens instantly**, also after a restart: the images and the
 > computed results stay in a local cache. The app shows how many images a view needs and waits
 > for you to press **download**. Nothing is downloaded before that.
 
-Python 3.10 or newer. Options: `paramost --port 8502`, `--no-browser`, `--offline` (only data
-already downloaded), `--cache-dir PATH`, `paramost cache-info` (where the cache is, its size,
-which targets), `paramost --version`. From a source checkout: `pip install -e ".[test]"` and
+Options: `paramost --port 8502`, `--no-browser`, `--offline` (only data already downloaded),
+`--cache-dir PATH`, `paramost cache-info` (where the cache is, its size, which targets),
+`paramost --version`. From a source checkout: `pip install -e ".[test]"` and
 `python -m paramost`.
 
 ## What it does

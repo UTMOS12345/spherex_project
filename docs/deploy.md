@@ -63,5 +63,7 @@ copies of old cutouts that still hold the PSF layer.
 
 ## Docker instead of systemd
 
-The image runs the same app: `docker run -p 8501:8501 -v cache:/data/cache
--e SPHEREX_DEMO=1 ghcr.io/utmos12345/paramost:1.0.0` behind any reverse proxy.
+The image runs the same app. Build it from the repository (`docker build -t paramost
+"https://github.com/UTMOS12345/spherex_project.git#main"`), or use the published image once it
+exists (`ghcr.io/utmos12345/paramost:1.0.0`), then `docker run -p 8501:8501 -v cache:/data/cache
+-e SPHEREX_DEMO=1 paramost` behind any reverse proxy.
