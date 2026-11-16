@@ -149,12 +149,16 @@ def download_time(n):
 
 def count_missing(fn, *args, **kwargs):
     """Live mode: how many images fn(*args, **kwargs) would download (api.count_downloads), or 0.
-    A failure gives 0: the real call then shows its own message."""
+    The archive not answering (searching a new target) raises ArchiveDown: guarded() says so
+    once, instead of the view trying the same search again. Other failures give 0: the real
+    call then shows its own message."""
     if not LIVE:
         return 0
     try:
         with st.spinner("checking which images are downloaded..."):
             return call(api.count_downloads, fn, *args, **kwargs)["missing"]
+    except (OSError, TimeoutError) as e:
+        raise ArchiveDown(str(e)) from None
     except Exception:
         return 0
 
@@ -190,10 +194,20 @@ def guarded(panel):
             st.warning(msg.replace("Untick demo mode", "Turn off Offline at the top"))
         else:
             st.error(msg)
+    except (ArchiveDown, OSError, TimeoutError) as e:
+        st.warning(ARCHIVE_DOWN.format(detail=str(e)[:160]))
     except Exception:
         st.error("This part could not be made. The data may not be downloaded yet; "
                  "try again or pick another setting.")
     return False
+
+
+class ArchiveDown(Exception):
+    """NASA's archive did not answer while counting what a view needs."""
+
+
+ARCHIVE_DOWN = ("NASA's archive (IRSA) is not answering right now ({detail}). Try again in a few "
+                "minutes; targets you have downloaded open with Offline on.")
 
 
 SHOW_PROGRESS_AFTER_S = 0.5               # a cached result returns sooner, so it never flashes a bar
@@ -611,6 +625,23 @@ def remember_view(view):
                                  settings=settings, n_images=files["n_images"], size_bytes=files["size_bytes"])
     except Exception:
         pass                                   # the index only speeds up the start screen
+
+
+def not_downloaded_offline():
+    """Offline and nothing of this target on this computer (no frame list or no images): say so
+    and skip the view, instead of trying the archive (offline) and failing. -> True if shown."""
+    if LIVE:
+        return False
+    try:
+        files = call(api.target_files, st.session_state["target"].strip())
+    except Exception:
+        return False                    # the view shows its own message
+    if files["frame_list"] is not None and files["n_images"]:
+        return False
+    st.info(f"Not downloaded yet: there are no images of {st.session_state['target'].strip()} on this "
+            "computer. Turn off Offline at the top to download them (the first view takes about "
+            "1-3 min; after that it opens instantly).")
+    return True
 
 
 def open_target(entry):
@@ -1294,6 +1325,8 @@ else:
         st.stop()
 
     intro(view)                         # one grey line: what this view does, what to try
+    if not_downloaded_offline():
+        st.stop()
     panel = {"video": video_panel, "compare": compare_panel, "overlays": overlays_panel,
              "spectrum": spectrum_panel, "light curve": light_curve_panel, "data": data_panel}[view]
     if guarded(panel):
