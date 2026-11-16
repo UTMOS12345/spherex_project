@@ -745,16 +745,23 @@ def compare_panel():
     st.caption(COMPARE_READ_DEEP)
     axes_note()
 
-    # pair: rows of api.epochs are the a and b of picture(kind="pair"); the api draws the later
-    # visit minus the earlier one whichever order they are picked in
+    # pair: rows of api.epochs (in time order) are the a and b of picture(kind="pair"); the api
+    # draws the later picture minus the earlier one whichever order they are picked in. The keys
+    # hold the target and settings, so a new target starts again at latest minus first.
+    st.markdown("#### difference of two visits")
     labels = epoch_labels(table)
     rows = list(range(len(table)))
     settings = "|".join(str(x) for x in (text, detector, fov, wl, clip, days))
     c1, c2 = st.columns(2)
-    a = c1.selectbox("picture a", rows, index=len(rows) - 1, format_func=labels.__getitem__,
-                     key="cmp_a|" + settings)
-    b = c2.selectbox("picture b", rows, index=0, format_func=labels.__getitem__,
-                     key="cmp_b|" + settings)
+    b = c1.selectbox("earlier", rows, index=0, format_func=labels.__getitem__,
+                     key="cmp_b|" + settings, help="The picture subtracted (blue = brighter then).")
+    a = c2.selectbox("later", rows, index=len(rows) - 1, format_func=labels.__getitem__,
+                     key="cmp_a|" + settings, help="The picture kept (red = brighter now).")
+    if len(rows) > 1 and a != b:
+        early, late = sorted((a, b))
+        st.caption(f"showing {table['date'][late]} minus {table['date'][early]}"
+                   + (" (the two were picked the other way round; the later one is always kept)"
+                      if a < b else "") + ".")
     with st.spinner("subtracting the two visits..."):
         fig = with_progress(lambda p: guarded_call(api.picture, text, kind="pair", detector=detector, fov=fov,
                                                    wl=wl, clip=clip, days=days, a=a, b=b, progress=p))
