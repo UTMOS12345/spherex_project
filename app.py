@@ -29,8 +29,6 @@ VIEWS = ["video", "compare", "overlays", "light curve", "spectrum", "data", "abo
 MODES = ["normal", "difference", "minusmean"]
 STEPS = list(api.TIME_STEPS)                # "per visit", "monthly", "weekly", "every frame"
 MAX_PICK = 40                               # more pictures than this: no "choose pictures" box
-# only to fill in the boxes when api.defaults itself fails (it is not an API call)
-FALLBACK = dict(detector="D2", band=1.6, tol=0.02)
 
 # Matplotlib figures and the FITS files behind them are not safe with several visitors at
 # once, so every api call runs under this one lock.
@@ -346,7 +344,7 @@ def target_detector():
     try:
         return cached_defaults(st.session_state["target"], LIVE)["detector"]
     except Exception:
-        return FALLBACK["detector"]
+        return api.OTHER_DEFAULTS["detector"]
 
 
 def picture_counts(text, detector, fov, wl, clip, days, pictures):
@@ -456,7 +454,7 @@ def first_setup():
             float(q["fov"])
         except (TypeError, ValueError):
             url_warn(f"the field of view in the link ({q['fov']!r}) is not a number, so 4 arcmin is used.")
-    sug = FALLBACK
+    sug = api.OTHER_DEFAULTS
     try:                                    # api.defaults returns OTHER_DEFAULTS for unknown input
         sug = cached_defaults(st.session_state["target"], LIVE)
     except Exception:
@@ -486,7 +484,7 @@ def refresh_defaults():
     try:
         sug = cached_defaults(target, LIVE)
     except Exception:
-        sug = FALLBACK
+        sug = api.OTHER_DEFAULTS
     st.session_state["detector"] = sug["detector"]
     st.session_state["wl"] = ""
     st.session_state["_defaults_for"] = target
@@ -671,7 +669,7 @@ def light_curve_panel():
     try:
         sug = cached_defaults(text, LIVE)
     except Exception:
-        sug = FALLBACK
+        sug = api.OTHER_DEFAULTS
     c1, c2 = st.columns(2)
     band = c1.number_input(
         "wavelength (micron)", min_value=0.75, max_value=5.0, step=0.05, format="%.2f",
