@@ -115,6 +115,17 @@ def wavelength_spread(lc):
     return float(wl.max() - wl.min()) if len(wl) > 1 else 0.0     # one per data release; "^" is kept for lower limits
 
 
+def _label_wavelengths(ax, points, color):
+    """The wavelength under each point of one visit: points (time, value, wavelength).
+    A visit's points are minutes apart, so labels under each point would overlap: with more
+    than one, they alternate left and right of their point and step down every second one."""
+    n = len(points)
+    for k, (t, v, w) in enumerate(sorted(points, key=lambda p: -float(p[1]))):
+        dx = 0 if n == 1 else (-6 if k % 2 == 0 else 6)
+        ax.annotate(f"{float(w):.3f} µm", (t, v), xytext=(dx, -7 - 9 * (k // 2)), textcoords="offset points",
+                    ha="center" if n == 1 else ("right" if dx < 0 else "left"), va="top", fontsize=7, color=color)
+
+
 def plot_light_curve_simple(lc, title, out_png=None, gap_days=30, span_mjd=None):
     """The easy-to-read light curve: ONE axis, x = date, y = brightness.
     Big dot = the average of one SPHEREx visit (bar = spread of that visit's points; visits come from
@@ -160,9 +171,8 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30, span_mjd=None)
             g = good[good["release"] == r]
             ax.plot(Time(g["mjd"], format="mjd").datetime, g["flux_mjy"], marker[r], color=B, ms=4, alpha=0.45,
                     ls="none")
-        for t, f, w in zip(Time(good["mjd"], format="mjd").datetime, good["flux_mjy"], good["wavelength_um"]):
-            ax.annotate(f"{float(w):.3f} µm", (t, f), xytext=(0, -7), textcoords="offset points",
-                        ha="center", va="top", fontsize=7, color=MUTED)   # each point's own wavelength
+        _label_wavelengths(ax, list(zip(Time(good["mjd"], format="mjd").datetime, good["flux_mjy"],
+                                        good["wavelength_um"])), MUTED)  # each point's own wavelength
         rel, counts = np.unique(np.asarray(good["release"], str), return_counts=True)
         kinds.append(str(rel[np.argmax(counts)]))         # the visit's marker: its most common release
         dates.append(d)
@@ -195,9 +205,7 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30, span_mjd=None)
     for k, (times, lim, d, wls) in enumerate(limits):
         ax.plot(times, lim, "^", color=THEME["flag"], ms=8, mew=0,
                 label="saturated: lower limit (true brightness is higher)" if k == 0 else None)
-        for t, v, w in zip(times, lim, wls):
-            ax.annotate(f"{w:.3f} µm", (t, v), xytext=(0, -7), textcoords="offset points",
-                        ha="center", va="top", fontsize=7, color=MUTED)
+        _label_wavelengths(ax, list(zip(times, lim, wls)), MUTED)
         ax.annotate(f"at least {_fmt(lim.max())}", (d, lim.max()), xytext=(10, 0), textcoords="offset points",
                     va="center", fontsize=9, color=THEME["muted"])
     tops = ([max(np.array(means) + np.array(spreads))] if dates else []) + [lim.max() for _, lim, _, _ in limits]
