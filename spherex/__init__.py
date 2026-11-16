@@ -18,6 +18,7 @@ Lesson -> module:
     9  light curves            -> photometry.py
     10 spectra                 -> spectrum.py
 """
+__version__ = "1.0.0"     # also part of the key of saved results (spherex.results)
 import warnings
 
 from astropy.wcs import FITSFixedWarning

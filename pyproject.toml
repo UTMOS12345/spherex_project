@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paramost"
+version = "1.0.0"
+description = "SPHEREx Flipbook: watch a patch of sky change in NASA SPHEREx images, with overlays, light curves and spectra"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "PARAMOST team" }]
+keywords = ["astronomy", "SPHEREx", "infrared", "proper motion", "streamlit"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Framework :: Streamlit",
+]
+# Lower bounds, not pins: the newest versions need Python 3.12, older ones keep 3.10 and 3.11
+# working. requirements.txt keeps the exact versions the server and the Docker image use.
+dependencies = [
+    "astropy>=6.0",
+    "astroquery>=0.4.7",
+    "reproject>=0.13",
+    "photutils>=1.13",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pyerfa>=2.0.1",
+    "matplotlib>=3.8",
+    "streamlit>=1.40",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+paramost = "paramost.cli:main"
+
+[project.urls]
+Source = "https://github.com/UTMOS12345/spherex_project"
+
+[tool.setuptools]
+packages = ["paramost", "spherex"]
+
+[tool.setuptools.package-data]
+paramost = [".streamlit/config.toml"]

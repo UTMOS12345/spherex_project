@@ -9,7 +9,7 @@ detectors, Gaia DR3 and CatWISE2020 overlays with proper-motion arrows, light cu
 measured on the fly from all 102 SPHEREx channels, and the contamination flags of the data.
 
 The data side is the Python package `spherex/`; `spherex/api.py` is the interface the web app
-calls (see `docs/API.md`). `app.py` is the Streamlit web app.
+calls (see `docs/API.md`). `paramost/app.py` is the Streamlit web app; `paramost` starts it.
 
 ## How it meets the challenge
 
@@ -79,7 +79,7 @@ Tested with Python 3.14. Run the commands from this folder.
 ```
 python -m venv .venv
 .venv/bin/pip install -r requirements.txt
-.venv/bin/streamlit run app.py
+.venv/bin/python -m paramost
 ```
 
 The app starts live: a view that needs images not downloaded yet says how many (and roughly
@@ -216,7 +216,8 @@ This tool uses:
 ## Files
 
 - `spherex/` the library; `spherex/api.py` the functions the app calls (`docs/API.md`).
-- `app.py` the Streamlit app.
+- `paramost/` the app: `app.py` (Streamlit), `cli.py` (the `paramost` command). `app.py` at the
+  root only forwards to it, for servers whose systemd unit still starts `app.py`.
 - `tools/` command-line scripts: `prepare_demo.py`, `make_gallery.py` fill `demo/` with backup
   results; `explore.py` writes extra products to `out/`. Run them from the repo root.
   `strip_psf.py IN OUT` writes copies of old cutouts without their unused PSF layer (~93% smaller).

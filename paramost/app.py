@@ -4,8 +4,9 @@ Built so far: page skeleton, target search with its options, the video view (int
 player + gif export), the overlays view, the spectrum view, the light curve view, the about
 view, the compare view (deep, pair, band difference, colour) and the data view.
 
-    .venv/bin/streamlit run app.py                     # local use: live, downloads on request
-    SPHEREX_DEMO=1 .venv/bin/streamlit run app.py      # public demo: starts offline
+    paramost                          # installed: the launcher starts this file with the theme
+    python -m paramost                # from a source checkout, same thing
+    SPHEREX_DEMO=1 python -m paramost # public demo: starts offline
 
 Live is the default: a view that needs images not downloaded yet first says how many and
 waits for its Download button. The "Offline" toggle (or SPHEREX_DEMO=1, or ?offline=1 in the
@@ -16,9 +17,15 @@ import contextvars
 import json
 import os
 import re
+import sys
 import threading
 import time
+from pathlib import Path
 from urllib.parse import urlencode
+
+# Started as a script by Streamlit, so the folder above paramost/ (a source checkout) may not be
+# on the import path; an installed copy finds spherex anyway and this changes nothing there.
+sys.path.insert(1, str(Path(__file__).resolve().parent.parent))
 
 import matplotlib.pyplot as plt
 import streamlit as st
@@ -46,7 +53,7 @@ st.markdown(
     [data-testid="stHeader"], [data-testid="stToolbar"], #MainMenu, footer {visibility: hidden;}
     .block-container {max-width: 760px; padding-top: 1.6rem; padding-bottom: 3rem;}
 
-    /* one accent (see .streamlit/config.toml): calm blue for fills, a lighter tint for text */
+    /* one accent (see paramost/.streamlit/config.toml): calm blue for fills, a lighter tint for text */
     :root { --accent-ink: #a8cfe6; --line: #383835; --grey: #c2c1bb; }
 
     h1 {font-size: 2rem; letter-spacing: -0.01em; margin-bottom: 0.15rem;}

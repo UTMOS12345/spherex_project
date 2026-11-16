@@ -1,8 +1,8 @@
 # spherex.api: guide for the web app
 
 The app only needs `from spherex import api, set_style`. `cache/` is found next to the
-`spherex/` package wherever Python starts (`SPHEREX_CACHE=/path` overrides it). A working example
-is `app_example.py` (`streamlit run app_example.py`).
+`spherex/` package wherever Python starts (`SPHEREX_CACHE=/path` overrides it). The working example
+is the app itself, `paramost/app.py` (`python -m paramost`).
 
 ## For the app
 
