@@ -120,10 +120,10 @@ def call(fn, *args, **kwargs):
         return fn(*args, **kwargs)
 
 
-# Measured with SPHEREX_DOWNLOAD_WORKERS=1 and =6 on a new target (see the app-focus report):
-# about this many seconds per image, one stream; parallel streams share it.
-SECONDS_PER_IMAGE = 9.0
-PARALLEL_SPEEDUP = {1: 1.0}                 # workers -> measured speed-up; others: interpolated
+# Measured 16 Nov 2026, 62 new cutouts from IRSA: 1 worker 799 s (12.9 s per image), 6 workers
+# 110 s (7.3x faster). IRSA's speed varies, so the estimate uses 13 s and a 6x speed-up.
+SECONDS_PER_IMAGE = 13.0
+PARALLEL_SPEEDUP = {1: 1.0, 6: 6.0}         # workers -> speed-up; other counts: 0.75 x workers
 
 
 def download_time(n):
@@ -136,7 +136,7 @@ def download_time(n):
         return "under a minute"
     if lo < 60:
         return f"about 1-{max(2, round(hi / 60))} min"
-    return f"about {round(lo / 60)}-{max(round(lo / 60) + 1, round(hi / 60))} min"
+    return f"about {int(lo // 60)}-{max(int(lo // 60) + 1, round(hi / 60))} min"
 
 
 def count_missing(fn, *args, **kwargs):
