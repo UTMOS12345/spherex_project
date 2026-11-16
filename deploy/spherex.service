@@ -13,7 +13,8 @@ EnvironmentFile=-/etc/spherex.env
 Environment=HOME=/srv/spherex
 Environment=MPLBACKEND=Agg
 Environment=STREAMLIT_SERVER_FILE_WATCHER_TYPE=none
-ExecStart=/srv/spherex/.venv/bin/streamlit run app.py --server.address 127.0.0.1 --server.port 8501 --server.headless true --browser.gatherUsageStats false
+# python -m paramost: the launcher in paramost/cli.py (runs paramost/app.py with the theme)
+ExecStart=/srv/spherex/.venv/bin/python -m paramost --no-browser --address 127.0.0.1 --port 8501
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30

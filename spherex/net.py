@@ -10,9 +10,28 @@ from astropy.utils.data import conf
 from .progress import note_failed_try
 from .text import plural
 
-# Where downloads and saved tables live: <project>/cache, whatever folder Python was started from.
-# Set SPHEREX_CACHE=/some/folder to use another one.
-CACHE_ROOT = Path(os.environ.get("SPHEREX_CACHE") or Path(__file__).resolve().parent.parent / "cache")
+CACHE_DIR_NAME = "paramost"     # name of the per-user cache folder (platformdirs)
+
+
+def default_cache_root():
+    """Where downloads, frame lists, catalogue cones and saved results live, in this order:
+    1. SPHEREX_CACHE=/some/folder (servers and Docker set it; `paramost --cache-dir` sets it);
+    2. cache/ of a source checkout, when it already exists next to spherex/ (a folder with .git
+       or pyproject.toml): an existing cache is never moved, and tools/ keep finding it;
+    3. the per-user cache folder of the operating system (platformdirs), e.g.
+       ~/.cache/paramost on Linux, ~/Library/Caches/paramost on macOS,
+       %LOCALAPPDATA%\\paramost\\Cache on Windows: what a pip/pipx install uses."""
+    env = os.environ.get("SPHEREX_CACHE")
+    if env:
+        return Path(env).expanduser()
+    repo = Path(__file__).resolve().parent.parent
+    if (repo / "cache").is_dir() and ((repo / ".git").exists() or (repo / "pyproject.toml").exists()):
+        return repo / "cache"
+    from platformdirs import user_cache_dir
+    return Path(user_cache_dir(CACHE_DIR_NAME, appauthor=False))
+
+
+CACHE_ROOT = default_cache_root()     # read once, at import
 
 RETRY_CODES = {429, 500, 502, 503, 504}   # "busy, try later"; 404/400 are never retried
 

@@ -174,6 +174,14 @@ def parse_detectors(detector):
     return sorted(out)
 
 
+def epoch_grid(frames, target, grid_arcmin=4.0, pixscale_arcsec=3.0):
+    """The one sky grid all epochs of make_epochs share -> (wcs, shape): centred on the target
+    in the middle of the frames' time span. spherex.results rebuilds a saved stack's WCS with
+    this instead of storing it (a WCS saved as a FITS header loses its last digits)."""
+    t_mid = Time((frames["mjd"].min() + frames["mjd"].max()) / 2, format="mjd")
+    return make_grid(at_time(target, t_mid), grid_arcmin, pixscale_arcsec)
+
+
 def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, pixscale_arcsec=3.0,
                 gap_days=30, max_len_days=60, bad_flags=BAD_FLAGS, keep_saturated_stars=True,
                 wl_range=None, clip=True, progress=None):
@@ -227,8 +235,7 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
         if n_pics > MAX_PICTURES:
             raise ValueError(f"One picture per frame would make {n_pics} pictures (at most {MAX_PICTURES}). "
                              "Use weekly pictures, or one detector instead of several.")
-    t_mid = Time((frames["mjd"].min() + frames["mjd"].max()) / 2, format="mjd")
-    grid_wcs, shape = make_grid(at_time(target, t_mid), grid_arcmin, pixscale_arcsec)
+    grid_wcs, shape = epoch_grid(frames, target, grid_arcmin, pixscale_arcsec)
 
     # Three passes, so each stage reports one running count (progress): 1. download every
     # frame, 2. clean and align every frame that arrived, 3. combine each epoch. Same frames,
