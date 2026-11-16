@@ -17,8 +17,8 @@ calls (see `docs/API.md`). `paramost/app.py` is the Streamlit web app; `paramost
   (`08h55m10.831s -7d14m42.53s`, also `RA 08h55m10.831s, Dec -7d14m42.53s`) are accepted.
   Every visit is stacked onto one fixed sky grid, so a moving object changes position between
   pictures. A green circle shows where the target should be on each date, using its proper
-  motion. The five test targets are cached and run offline; any other position downloads its
-  images from IRSA first (minutes).
+  motion. A new position downloads its images from IRSA first (about 1-3 min for a video);
+  after that it opens from the cache.
 - **1. Easy to update with new data releases.** The list of SPHEREx releases is read from
   IRSA each time a new target is searched; new Quick Releases (QRn) and Data Releases (DRn)
   are picked up without code changes, and when an exposure is in several releases the best
@@ -45,78 +45,101 @@ calls (see `docs/API.md`). `paramost/app.py` is the Streamlit web app; `paramost
 - **8. Public tools.** Astropy (coordinates, WCS, time, FITS, statistics), astroquery (IRSA,
   Gaia, SIMBAD, SkyBoT), reproject and photutils. Aladin Lite (CDS) is used only for the optional sky viewer.
 
-## Cache size
+## Install
 
-Downloaded cutouts live in `cache/cutouts` (controlled by `SPHEREX_CACHE`). A bounded LRU
-policy can cap that directory via environment variables (read at call time; unset/0 = unlimited,
-default behavior unchanged):
+**With pipx** (recommended: the app gets its own environment and a `paramost` command):
 
-- `SPHEREX_CACHE_MAX_GB` (float): total size cap over `cache/cutouts/*.fits` only. Other cache
-  dirs (`frames/`, `gaia/`, `wise/`) are never evicted.
-- `SPHEREX_CACHE_POLICY` (`evict` default | `stop`): `evict` deletes the oldest cutouts (by mtime)
-  after new downloads to stay under the cap; `stop` never deletes and raises `OSError` on a cache
-  miss when full (cache hits still work).
-- `SPHEREX_CACHE_TTL_DAYS` (float): delete cutouts older than this many days during a sweep
-  (renew on demand; re-downloaded on the next miss).
-- `SPHEREX_CACHE_SWEEP_EVERY` (int, default 1): enforce after every N new downloads.
+```
+pipx install git+https://github.com/UTMOS12345/spherex_project.git
+paramost
+```
 
-Recommended server setting: `SPHEREX_CACHE_MAX_GB=25`, `SPHEREX_CACHE_POLICY=evict`,
-`SPHEREX_CACHE_TTL_DAYS=0`.
+`paramost` opens the app in your browser at http://localhost:8501. Python 3.10 or newer; the
+newest dependency versions need 3.12.
 
-## Generated outputs
+**With Docker** (nothing to install besides Docker):
 
-`tools/prepare_demo.py`, `tools/make_gallery.py` and `tools/explore.py` write generated files to `demo/` and
-`out/` by default. Both are gitignored; on a server it is better to keep them outside the
-clone:
+```
+docker build -t paramost .                                     # or, once v1.0.0 is published:
+docker run -p 8501:8501 -v paramost-cache:/data/cache paramost   # ghcr.io/utmos12345/paramost:1.0.0
+```
 
-- `SPHEREX_DEMO_DIR` (default `demo`): where `tools/prepare_demo.py` / `tools/make_gallery.py` save.
-- `SPHEREX_OUT_DIR` (default `out`): where `tools/explore.py` saves.
+then open http://localhost:8501. Downloads stay in the `paramost-cache` volume.
 
-## Install and run
-
-Tested with Python 3.14. Run the commands from this folder.
+**From a source checkout** (to change the code):
 
 ```
 python -m venv .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -e ".[test]"        # or: pip install -r requirements.txt (exact versions)
 .venv/bin/python -m paramost
 ```
 
-The app starts live: a view that needs images not downloaded yet says how many (and roughly
-how long) and waits for its Download button; up to `SPHEREX_DOWNLOAD_WORKERS` images (default
-6) download at once. The **Offline** toggle at the top uses downloaded data only.
+Options: `paramost --port 8502`, `--no-browser`, `--offline`, `--cache-dir PATH`,
+`paramost cache-info` (where the cache is, how big, which targets), `paramost --version`.
 
-`SPHEREX_DEMO=1` (or `api.set_demo_mode(True)` in code) is the setting for a public demo: the
-app starts with Offline on, nothing is downloaded, and every server call gets one short try, so
-nothing can hang; images not in `cache/` are skipped. A link can set it with `?offline=1` or
-`?offline=0`.
+## First run
 
-`cache/` (about 3 GB of cutouts, plus frame lists and catalogue cones) is found next to the
-`spherex/` package whatever folder Python starts in; set `SPHEREX_CACHE=/path` to use another.
+A new install starts with an empty screen: a search box and one line, "Type a star name or
+coordinates. The first view downloads from NASA's archive (about 1-3 min); after that it opens
+instantly." Nothing is downloaded until you ask:
 
-Backup results for the five test targets, made from the cache:
+1. Type a name (`WISE 0855`, `Barnard's Star`) or coordinates (`133.795 -7.245`,
+   `08h55m10.8s -07d14m42.5s`).
+2. The archive is searched for SPHEREx frames of that position, and the view says how many images
+   it needs, for example "this view needs 62 images from IRSA that are not downloaded yet
+   (about 1-3 min)", with a **download** button. Nothing starts before you press it; a progress
+   bar with the time left runs while it downloads (6 images at a time).
+3. The result (stacked visits, light curve, spectrum) is saved in the cache, so the same view
+   opens instantly the next time, also after restarting the app.
+
+Targets you have downloaded appear on the start screen under **your targets**, newest first,
+with the date you last looked and their size on disk. A button opens the target with the
+settings you last used; **remove** (after a confirmation) deletes its images and saved
+results.
+
+## Offline mode
+
+The **Offline** toggle at the top (or `paramost --offline`, or `?offline=1` in the link) uses
+only data already on this computer: nothing is downloaded, and a target without images says
+"Not downloaded yet". Turn it off to download. A server for a public demo sets
+`SPHEREX_DEMO=1`, which starts the app offline and hides the remove buttons (see
+[docs/deploy.md](docs/deploy.md)).
+
+## Where the cache lives
+
+Everything downloaded or computed (images, frame lists, catalogue cones, saved results and the
+`targets.json` index behind "your targets") lives in one folder:
+
+| installed with | cache folder |
+|---|---|
+| pipx / pip on Linux | `~/.cache/paramost` |
+| pipx / pip on macOS | `~/Library/Caches/paramost` |
+| pipx / pip on Windows | `%LOCALAPPDATA%\paramost\Cache` |
+| Docker | `/data/cache` in the container (the volume) |
+| a source checkout | `cache/` in the checkout (an existing cache is never moved) |
+
+`paramost --cache-dir PATH` or `SPHEREX_CACHE=PATH` uses another folder; `paramost cache-info`
+prints the folder and its size. A target's images take about 0.4 MB each, so a target with 60
+to 120 images needs 25-50 MB. The cache can be capped:
+
+- `SPHEREX_CACHE_MAX_GB` (float, unset = unlimited): size cap over the downloaded images.
+- `SPHEREX_CACHE_POLICY` (`evict` default | `stop`): `evict` deletes the least recently used
+  images after new downloads to stay under the cap; `stop` never deletes and refuses new
+  downloads when full.
+- `SPHEREX_CACHE_TTL_DAYS` (float): delete images older than this many days.
+- `SPHEREX_DOWNLOAD_WORKERS` (default 6): images downloaded at once.
+
+## Uninstall
 
 ```
-SPHEREX_DEMO=1 .venv/bin/python tools/prepare_demo.py --skip-explore    # video, difference, overlay, light curve, spectrum
-.venv/bin/python tools/make_gallery.py                                  # every other product, demo/STATUS.md, demo/index.html
+pipx uninstall paramost
 ```
 
-Open `demo/index.html` to see them all. Note: `tools/make_gallery.py` downloads the images a product
-needs when the cache has none of them (it switches demo mode off for that step).
-`tools/prepare_demo.py --refresh` searches IRSA for new data and `--all-frames` downloads every frame;
-both need the network and take long.
+and delete the cache folder from the table above (for example `rm -rf ~/.cache/paramost`) to
+free the disk space. With Docker: `docker rm` the container, `docker volume rm paramost-cache`
+and `docker rmi paramost`.
 
-## Deployment
-
-For a public demo on an Ubuntu droplet (systemd + nginx + an auto-deploy cron job following
-`main`), see `deploy/README.md`. The short version:
-
-```
-bash deploy/bootstrap.sh          # as root on the server
-rsync -av cache/ root@SERVER:/srv/spherex-cache/
-```
-
-## What works (verified on the cached data of all five targets)
+## What works (verified on cached data of the five test targets)
 
 - Target lookup: the five test targets by name and common aliases; decimal degrees and
   sexagesimal coordinates, with or without `RA`/`Dec` labels and a comma. Coordinates within
@@ -148,9 +171,8 @@ rsync -av cache/ root@SERVER:/srv/spherex-cache/
 - Flags view and visits table.
 - Offline (demo) mode: every view above runs with the network switched off.
 
-In the code but not verified here: the asteroid overlay (needs IMCCE SkyBoT online), searching
-and downloading new targets, `refresh=True`, and the Streamlit app itself (URL parameters, the
-player inside the page).
+In the code but not verified here: the asteroid overlay (needs IMCCE SkyBoT online) and
+`refresh=True`.
 
 ## The five test targets
 
@@ -195,10 +217,12 @@ player inside the page).
   shows; pictures resting on fewer than 4 frames are marked "few frames: unreliable".
 - **Sparse light curves**: a light curve uses only frames where the target falls within
   ±0.02 µm of the chosen wavelength, so a target has 1-5 points.
-- **Slow first load for new targets**: searching IRSA and downloading 50-70 cutouts, one after
-  another, takes several minutes before the first video. The five test targets are cached.
+- **First view of a new target**: searching IRSA and downloading 50-120 images takes about 1-3
+  minutes (6 at a time; one at a time took 13 minutes for 62 images). When IRSA does not
+  answer, the app says so and tries again on the next request.
 - **Field of view** up to 10′ (larger views would need bigger downloads).
-- **Not publicly hosted**: the tool runs locally with the cache next to it.
+- **Runs on your computer**: the app is meant to be installed locally; a hosted demo is
+  optional (docs/deploy.md).
 
 ## Data and credits
 
@@ -211,18 +235,21 @@ This tool uses:
 - SIMBAD, operated at CDS, Strasbourg (Wenger et al. 2000), and the CDS Sesame name resolver.
 - Aladin Lite (CDS, Strasbourg), for the optional sky viewer around the target.
 - SkyBoT, IMCCE, Observatoire de Paris (Berthier et al. 2006).
-- Astropy, astroquery, reproject, photutils, NumPy and Matplotlib.
+- Astropy, astroquery, reproject, photutils, NumPy, SciPy, Matplotlib, Streamlit and platformdirs.
 
 ## Files
 
 - `spherex/` the library; `spherex/api.py` the functions the app calls (`docs/API.md`).
-- `paramost/` the app: `app.py` (Streamlit), `cli.py` (the `paramost` command). `app.py` at the
-  root only forwards to it, for servers whose systemd unit still starts `app.py`.
-- `tools/` command-line scripts: `prepare_demo.py`, `make_gallery.py` fill `demo/` with backup
-  results; `explore.py` writes extra products to `out/`. Run them from the repo root.
-  `strip_psf.py IN OUT` writes copies of old cutouts without their unused PSF layer (~93% smaller).
-- `docs/` `API.md`; `docs/history/` earlier review notes and the cleanup plan.
-- `tests/` pytest tests (`pip install -r requirements-dev.txt`, then `pytest`).
-- `cache/` frame lists, cutouts, Gaia and CatWISE cones. Cutouts are not tracked; ship or rebuild
-  them (`tools/prepare_demo.py`).
-- `deploy/` systemd unit, nginx site, bootstrap and auto-deploy scripts (`deploy/README.md`).
+- `paramost/` the app: `app.py` (Streamlit), `cli.py` (the `paramost` command), `index.py`
+  (the "your targets" index). `app.py` at the root only forwards to it, for servers whose
+  systemd unit still starts `app.py`.
+- `tools/` command-line scripts for a source checkout (docs/deploy.md): `prepare_demo.py`,
+  `make_gallery.py`, `explore.py`, and `strip_psf.py IN OUT`, which writes copies of old
+  cutouts without their unused PSF layer (93% smaller).
+- `docs/` `API.md` (the library interface), `deploy.md` (hosting a demo server);
+  `docs/history/` earlier review notes.
+- `tests/` unit tests (`pip install -e ".[test]"`, then `pytest`; no network needed).
+- `cache/` in a source checkout: the frame lists and catalogue cones of the five test targets
+  (tracked) and whatever you download (not tracked).
+- `deploy/` systemd unit, nginx site, bootstrap and auto-deploy scripts for a server.
+- `Dockerfile`, `.github/workflows/` (tests on Python 3.11 and 3.12; the image on v* tags).

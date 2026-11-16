@@ -96,6 +96,8 @@ cd /srv/spherex
 sudo -H -u spherex git fetch origin
 sudo -H -u spherex git switch main
 install -m 0755 /srv/spherex/deploy/deploy.sh /usr/local/bin/spherex-deploy
+install -m 0644 /srv/spherex/deploy/spherex.service /etc/systemd/system/spherex.service   # starts python -m paramost (1.0)
+systemctl daemon-reload
 /usr/local/bin/spherex-deploy
 systemctl is-active spherex && curl -sI http://127.0.0.1:8501 | head -1
 journalctl -u spherex -n 50 --no-pager | grep -i traceback || echo 'no tracebacks'
