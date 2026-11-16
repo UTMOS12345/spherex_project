@@ -614,8 +614,9 @@ def video_panel():
 
     with st.spinner("building the player..."):
         html = with_progress(lambda p: cached_player(*key, real_time, _progress=p))
-    # 800 px leaves room for a square picture plus the control bar, so nothing needs scrolling
-    embed_html(html, height=800)
+    # the player is 600 px wide: a square picture, its title and the control bar measure 655 px
+    # in Chromium; 680 leaves a small margin and no empty band below the controls
+    embed_html(html, height=680)
     sky_panel(text, fov)
     counts = picture_counts(text, detector, fov, wl, clip, days, pictures)
     if counts:
