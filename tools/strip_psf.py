@@ -27,9 +27,9 @@ CHECKED_LAYERS = ("IMAGE", "FLAGS", "VARIANCE")
 
 
 def _real_cache():
-    """The project's cache folder (what spherex.net uses), without importing astropy-heavy spherex."""
-    root = pathlib.Path(__file__).resolve().parent.parent
-    return pathlib.Path(os.environ.get("SPHEREX_CACHE") or root / "cache").resolve()
+    """The cache folder the app and the library use (spherex.net.default_cache_root)."""
+    from spherex.net import default_cache_root
+    return default_cache_root().resolve()
 
 
 def _inside(path, folder):

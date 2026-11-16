@@ -27,6 +27,7 @@ dependencies = [
     "pyerfa>=2.0.1",
     "matplotlib>=3.8",
     "streamlit>=1.40",
+    "platformdirs>=3.0",
 ]
 
 [project.optional-dependencies]
