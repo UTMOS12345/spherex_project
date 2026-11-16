@@ -286,6 +286,33 @@ class counting:
         return False
 
 
+_MISSING = contextvars.ContextVar("spherex_missing_images", default=None)
+
+
+class track_missing:
+    """with track_missing() as t: ... -> t.count = images that get_cutouts could not supply
+    (not in the cache offline, or failed) during the block. spherex.results saves a result only
+    when this is 0."""
+
+    def __init__(self):
+        self.count = 0
+
+    def __enter__(self):
+        self._token = _MISSING.set(self)
+        return self
+
+    def __exit__(self, *exc):
+        _MISSING.reset(self._token)
+        return False
+
+
+def note_missing(n):
+    """Add n missing images to the active track_missing block, if any."""
+    t = _MISSING.get()
+    if t is not None:
+        t.count += n
+
+
 def get_cutouts(requests, progress=None, workers=None):
     """Many cutouts: [(url, center, size_deg), ...] -> list in the same order with, per request,
     the local path, or the OSError that get_cutout raised for it (the caller decides whether to
@@ -318,6 +345,7 @@ def get_cutouts(requests, progress=None, workers=None):
             report(progress, DOWNLOADING, done, total)
     jobs = [(tuple(ix), requests[ix[0]]) for ix in missing.values()]
     _fetch_all(jobs, download_workers() if workers is None else workers, finished)
+    note_missing(sum(isinstance(r, OSError) for r in out))
     return out
 
 

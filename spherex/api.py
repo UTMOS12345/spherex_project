@@ -30,8 +30,8 @@ from .asteroids import known_asteroids, draw_asteroids
 from .clean import clean_frame, BAD_FLAGS
 from .combine import deep_image, minus_mean, difference_series, band_difference, rgb_image
 from .diff import difference, make_gif, shared_norm, hold_counts
-from .download import get_cutout, get_cutouts, counting, DownloadCount
-from .epochs import assign_epochs, make_epochs, parse_detectors, CLIP_MIN_FRAMES
+from .download import get_cutout, get_cutouts, counting, DownloadCount, track_missing, _COUNTING
+from .epochs import assign_epochs, make_epochs, epoch_grid, parse_detectors, CLIP_MIN_FRAMES
 from .frames import load_or_find_frames
 from .gaia import gaia_overlay, draw_gaia
 from .photometry import light_curve
@@ -43,6 +43,7 @@ from .targets import parse_target, at_time, has_pm, known_target, known_near, ta
 from .text import plural
 from .wise import wise_overlay
 from . import net
+from . import results
 from .net import set_demo_mode            # api.set_demo_mode(True): cached data only, no hangs
 
 MAX_FOV = 10.0            # arcmin served from the standard downloads
@@ -97,6 +98,24 @@ def _load(text, refresh=False, progress=None):
     return target, assign_epochs(frames)
 
 
+def _saved(path):
+    """A saved result (spherex.results) for path, or None. Counting downloads
+    (count_downloads), a saved result means: nothing to download, so stop here."""
+    obj = results.load(path)
+    if obj is not None and _COUNTING.get():
+        raise DownloadCount(0, 0)
+    return obj
+
+
+def _compute_and_save(path, compute):
+    """compute() -> result, saved at path when every image it asked for was there."""
+    with track_missing() as missing:
+        out = compute()
+    if missing.count == 0:
+        results.save(path, out)
+    return out
+
+
 def _wl(wl):
     """'4.4-4.7' or (4.4, 4.7) or None -> tuple or None."""
     if wl in (None, "", ()):
@@ -131,8 +150,20 @@ def _epochs(text, detector="D2", fov=4.0, wl=None, days=60, clip=True, progress=
     key = (target_name(text, target), det, round(float(fov), 2), wl, days, bool(clip),
            hash(tuple(frames["access_url"])))
     if key not in _memory:
-        eps = make_epochs(frames, target, det, grid_arcmin=fov, wl_range=wl,
-                          gap_days=min(30, days), max_len_days=days, clip=clip, progress=progress)
+        # saved on disk by an earlier run with exactly these settings and frames (spherex.results)
+        path = results.result_path(key[0], "stacks", target, detector=det, fov=key[2], wl=wl, days=days,
+                                   clip=bool(clip), keep_saturated_stars=True, pixscale_arcsec=3.0,
+                                   frames=results.frames_key(frames))
+        saved = _saved(path)
+        if saved is not None:           # the stored stacks have no WCS: rebuild the same grid
+            grid = epoch_grid(frames, target, fov, 3.0)[0]
+            eps = [dict(e, wcs=grid) for e in saved]
+        else:
+            with track_missing() as missing:
+                eps = make_epochs(frames, target, det, grid_arcmin=fov, wl_range=wl, gap_days=min(30, days),
+                                  max_len_days=days, clip=clip, progress=progress)
+            if missing.count == 0:
+                results.save(path, [dict(e, wcs=None) for e in eps])
         if not eps:
             if net.DEMO_MODE:
                 raise ValueError(f"The {det or 'matching'} images of '{text}' are not in the offline cache. "
@@ -746,7 +777,11 @@ def light_curve_figure(text, band=1.6, tol=0.02, progress=None):
     progress: optional callback (spherex.progress): searching (new targets only), downloading
     images, measuring, searching the archive (Gaia neighbours), drawing."""
     target, frames = _load(text, progress=progress)
-    lc = light_curve(frames, target, band, tol_um=tol, progress=progress)
+    path = results.result_path(target_name(text, target), "light_curve", target, band=float(band), tol=float(tol),
+                               r_px=2.0, size_deg=0.1, frames=results.frames_key(frames))
+    lc = _saved(path)
+    if lc is None:
+        lc = _compute_and_save(path, lambda: light_curve(frames, target, band, tol_um=tol, progress=progress))
     if len(lc) == 0:
         raise ValueError(f"No image has '{text}' at {band:g} ± {tol:g} micron. Try another wavelength: "
                          "the visits table shows which detectors observed this target."
@@ -773,6 +808,12 @@ def _neighbours_reported(target, mjd, progress):
     return warning
 
 
+def _spectrum_path(text, target, sub):
+    """Where the measured spectrum of the visit with frames `sub` is saved (spherex.results)."""
+    return results.result_path(target_name(text, target), "spectrum", target, r_px=2.0,
+                               frames=results.frames_key(sub))
+
+
 def spectrum_figure(text, visit=-1, all_visits=False, progress=None):
     """Brightness at every wavelength -> (figure, table).
     visit: which visit (-1 = latest). all_visits=True overlays every visit instead.
@@ -787,14 +828,22 @@ def spectrum_figure(text, visit=-1, all_visits=False, progress=None):
     ids = sorted(set(frames["epoch"]))
     if all_visits:
         subs = [frames[frames["epoch"] == e] for e in ids]
-        requests = [r for sub in subs for r in spectrum_requests(sub, target)]
-        fetched = get_cutouts(requests, progress)          # one download pass for every visit
+        paths = [_spectrum_path(text, target, sub) for sub in subs]
+        saved = [results.load(p) for p in paths]
+        if all(x is not None for x in saved) and _COUNTING.get():
+            raise DownloadCount(0, 0)
+        # one download pass for every visit that is not saved yet
+        requests = [r for sub, x in zip(subs, saved) if x is None for r in spectrum_requests(sub, target)]
+        fetched = get_cutouts(requests, progress) if requests else []
         report(progress, MEASURING, 0, len(requests))
         per, tables, specs, saturated, offset = [], [], [], False, 0
-        for e, sub in zip(ids, subs):
-            spec = spectrum(sub, target, paths=fetched[offset:offset + len(sub)],
-                            progress=shifted(progress, MEASURING, offset, len(requests)))
-            offset += len(sub)
+        for e, sub, path, spec in zip(ids, subs, paths, saved):
+            if spec is None:
+                got = fetched[offset:offset + len(sub)]
+                spec = spectrum(sub, target, paths=got, progress=shifted(progress, MEASURING, offset, len(requests)))
+                offset += len(sub)
+                if not any(isinstance(g, OSError) for g in got):      # every image there: save it
+                    results.save(path, spec)
             b = bin_to_channels(spec)
             if len(spec) and spec["saturated"].mean() > 0.5 and len(b) < 5:
                 b = b[:0]                                  # a few stray channels: show the limits instead
@@ -822,7 +871,10 @@ def spectrum_figure(text, visit=-1, all_visits=False, progress=None):
         sub = frames[frames["epoch"] == ids[visit]]
     except IndexError:
         raise ValueError(f"There {'is' if len(ids) == 1 else 'are'} only {plural(len(ids), 'visit')}.")
-    spec = spectrum(sub, target, progress=progress)
+    path = _spectrum_path(text, target, sub)
+    spec = _saved(path)
+    if spec is None:
+        spec = _compute_and_save(path, lambda: spectrum(sub, target, progress=progress))
     binned = bin_to_channels(spec)
     if len(spec) == 0:
         raise ValueError(f"No spectrum could be measured for '{text}' in that visit.")
