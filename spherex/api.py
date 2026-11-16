@@ -44,6 +44,7 @@ from .text import plural
 from .wise import wise_overlay
 from . import net
 from . import results
+from . import cachefiles
 from .net import set_demo_mode            # api.set_demo_mode(True): cached data only, no hangs
 
 MAX_FOV = 10.0            # arcmin served from the standard downloads
@@ -888,6 +889,25 @@ def spectrum_figure(text, visit=-1, all_visits=False, progress=None):
     result = _with_warning(fig, table, _join(SATURATED_NOTE if saturated else None, neighbours))
     report(progress, DRAWING, 1, 1)
     return result
+
+
+def target_files(text):
+    """What the cache holds for a target -> dict: name (its cache name), images (cutout paths),
+    frame_list, results (saved-results folder), cones (Gaia / CatWISE files), n_images,
+    size_bytes. Reads local files only (a name may still be looked up, as in resolve)."""
+    return cachefiles.target_files(text, _parse(text))
+
+
+def remove_target(text):
+    """Delete everything the cache holds for a target (images, frame list, saved results,
+    catalogue cones) and forget its pictures in memory -> bytes freed. The next view of it
+    searches and downloads again."""
+    target = _parse(text)
+    freed = cachefiles.remove_target_files(text, target)
+    name = target_name(text, target)
+    for key in [k for k in _memory if k[0] == name]:
+        del _memory[key]
+    return freed
 
 
 def count_downloads(fn, *args, **kwargs):

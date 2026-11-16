@@ -30,9 +30,11 @@ sys.path.insert(1, str(Path(__file__).resolve().parent.parent))
 import matplotlib.pyplot as plt
 import streamlit as st
 
-from spherex import api, set_style
+from spherex import api, set_style, results
 from spherex.download import download_workers
+from spherex.net import CACHE_ROOT
 from spherex.progress import Estimate
+from paramost import index as targets_index
 
 REPO_URL = "REPO_URL"                       # placeholder: replace with the repository link
 VIEWS = ["video", "compare", "overlays", "light curve", "spectrum", "data", "about"]
@@ -565,6 +567,157 @@ def refresh_defaults():
     st.session_state["detector"] = sug["detector"]
     st.session_state["wl"] = ""
     st.session_state["_defaults_for"] = target
+
+
+# ------------------------------------------------------------------ your targets
+MAX_TARGET_BUTTONS = 12
+# a public demo server (SPHEREX_DEMO=1) shows its targets, but no visitor may delete its data
+REMOVE_ALLOWED = os.environ.get("SPHEREX_DEMO", "0") != "1"
+PRELOAD_TARGETS, PRELOAD_FILES = 3, 4      # most recent targets, newest saved results of each
+
+
+def human_size(n):
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit in ("B", "KB") else f"{n:.1f} {unit}"
+        n /= 1024
+
+
+def view_settings(view):
+    """The settings of the view on screen, as in the link (what 'last viewed with' means)."""
+    return {"detector": st.session_state["detector"], "wl": st.session_state["wl"],
+            "fov": f"{float(st.session_state['fov']):.1f}", "view": view,
+            "mode": st.session_state.get("mode", "normal"), "clip": "0" if st.session_state["raw"] else "1",
+            "days": str(st.session_state.get("days", 60)), "rt": "1" if st.session_state.get("real_time") else "0"}
+
+
+def remember_view(view):
+    """After a view was shown: update this target's entry in <cache>/targets.json (images, size,
+    settings, date). Only when the target or settings changed, or every 30 s, so a rerun does
+    not rescan the cache; a target without downloaded images is not added."""
+    text = st.session_state["target"].strip()
+    settings = view_settings(view)
+    sig = (text, json.dumps(settings, sort_keys=True))
+    last = st.session_state.get("_recorded")
+    if last and last[0] == sig and time.time() - last[1] < 30:
+        return
+    st.session_state["_recorded"] = (sig, time.time())
+    try:
+        files = call(api.target_files, text)
+        info = call(api.resolve, text)
+        key = results.safe_name(files["name"])
+        if files["n_images"] or key in targets_index.read(CACHE_ROOT):
+            targets_index.record(CACHE_ROOT, key, name=info["name"], text=text, ra=info["ra"], dec=info["dec"],
+                                 settings=settings, n_images=files["n_images"], size_bytes=files["size_bytes"])
+    except Exception:
+        pass                                   # the index only speeds up the start screen
+
+
+def open_target(entry):
+    """A 'your targets' button: that target with the settings it was last viewed with."""
+    st.session_state["target"] = entry["text"]
+    st.session_state["_defaults_for"] = entry["text"]     # keep these settings, not the defaults
+    sug = api.OTHER_DEFAULTS
+    try:
+        sug = cached_defaults(entry["text"], LIVE)
+    except Exception:
+        pass
+    got = entry.get("settings") or {}
+    st.session_state["detector"] = got.get("detector", sug["detector"])
+    st.session_state["wl"] = got.get("wl", "")
+    try:
+        st.session_state["fov"] = min(max(float(got.get("fov", 4.0)), 2.0), float(api.MAX_FOV))
+    except (TypeError, ValueError):
+        st.session_state["fov"] = 4.0
+    st.session_state["view"] = got.get("view") if got.get("view") in VIEWS else "video"
+    st.session_state["mode"] = got.get("mode") if got.get("mode") in MODES else "normal"
+    st.session_state["raw"] = got.get("clip") == "0"
+    try:
+        days = int(got.get("days", 60))
+    except (TypeError, ValueError):
+        days = 60
+    st.session_state["days"] = days if days in api.TIME_STEPS.values() else 60
+    st.session_state["step"] = step_label(st.session_state["days"])   # the time-step box keeps its own state
+    st.session_state["real_time"] = got.get("rt") == "1"
+    st.session_state.pop("_remove", None)
+
+
+def ask_remove(key):
+    st.session_state["_remove"] = key
+
+
+def cancel_remove():
+    st.session_state.pop("_remove", None)
+
+
+def do_remove(entry):
+    """Delete the target's downloaded data and saved results, then its index entry."""
+    st.session_state.pop("_remove", None)
+    try:
+        freed = call(api.remove_target, entry["text"])
+    except Exception as e:
+        st.session_state["_removed"] = ("error", f"{entry['name']} could not be removed ({type(e).__name__}); "
+                                                 "try again with Offline off, so its name can be looked up.")
+        return
+    targets_index.drop(CACHE_ROOT, entry["key"])
+    st.cache_data.clear()                      # pictures of it kept by this page
+    st.session_state["_removed"] = ("ok", f"removed {entry['name']}: {human_size(freed)} freed.")
+
+
+def your_targets():
+    """The start screen's list: one button per target with downloaded images, newest first."""
+    try:
+        entries = targets_index.load_index(CACHE_ROOT)
+    except Exception:
+        entries = []
+    kind, msg = st.session_state.pop("_removed", (None, None))
+    if msg:
+        (st.success if kind == "ok" else st.error)(msg)
+    if not entries:
+        return
+    st.markdown("#### your targets")
+    shown = entries if st.session_state.get("targets_all") else entries[:MAX_TARGET_BUTTONS]
+    for e in shown:
+        label = f"{e['name']}  ·  {e.get('last_viewed', '')[:10]}  ·  {human_size(e.get('size_bytes', 0))}"
+        if REMOVE_ALLOWED:
+            c1, c2 = st.columns([6, 1])
+            c1.button(label, key=f"open|{e['key']}", on_click=open_target, args=(e,), use_container_width=True)
+            c2.button("remove", key=f"rm|{e['key']}", on_click=ask_remove, args=(e["key"],),
+                      help="Delete this target's downloaded images and saved results.")
+        else:
+            st.button(label, key=f"open|{e['key']}", on_click=open_target, args=(e,), use_container_width=True)
+        if st.session_state.get("_remove") == e["key"]:
+            st.warning(f"Delete {human_size(e.get('size_bytes', 0))} of downloaded data and saved results for "
+                       f"{e['name']}? Viewing it again downloads everything again.")
+            c1, c2 = st.columns(2)
+            c1.button("yes, remove", key=f"rm_yes|{e['key']}", on_click=do_remove, args=(e,), type="primary")
+            c2.button("cancel", key=f"rm_no|{e['key']}", on_click=cancel_remove)
+    if len(entries) > MAX_TARGET_BUTTONS:
+        st.toggle(f"show all {len(entries)}", key="targets_all")
+
+
+def _preload():
+    """Background: read the newest saved results of the most recent targets into memory.
+    Disk only (spherex.results.preload never computes or downloads); any failure is ignored."""
+    try:
+        for e in targets_index.load_index(CACHE_ROOT)[:PRELOAD_TARGETS]:
+            folder = CACHE_ROOT / "results" / e["key"]
+            files = sorted(folder.glob("*.pkl"), key=lambda p: p.stat().st_mtime, reverse=True)
+            results.preload(files[:PRELOAD_FILES])
+    except Exception:
+        pass
+
+
+@st.cache_resource(show_spinner=False)
+def start_preload():
+    """Once per app process, started after the page is drawn, on a daemon thread: it never
+    blocks a page or a request (st.cache_resource runs this once for all visitors).
+    PARAMOST_PRELOAD=0 turns it off."""
+    if os.environ.get("PARAMOST_PRELOAD", "1") == "0":
+        return None
+    t = threading.Thread(target=_preload, name="paramost-preload", daemon=True)
+    t.start()
+    return t
 
 
 # ------------------------------------------------------------------ panels
@@ -1134,23 +1287,17 @@ if view == "about":
 else:
     if not st.session_state["target"].strip():
         st.caption(START_HINT)          # the start screen: nothing loads until a target is typed
+        your_targets()
+        start_preload()
         st.stop()
     if not guarded(header):             # unknown target: one message, no view underneath
         st.stop()
 
     intro(view)                         # one grey line: what this view does, what to try
-    if view == "video":
-        guarded(video_panel)
-    elif view == "compare":
-        guarded(compare_panel)
-    elif view == "overlays":
-        guarded(overlays_panel)
-    elif view == "spectrum":
-        guarded(spectrum_panel)
-    elif view == "light curve":
-        guarded(light_curve_panel)
-    elif view == "data":
-        guarded(data_panel)
+    panel = {"video": video_panel, "compare": compare_panel, "overlays": overlays_panel,
+             "spectrum": spectrum_panel, "light curve": light_curve_panel, "data": data_panel}[view]
+    if guarded(panel):
+        remember_view(view)             # "your targets" on the start screen
 
 # keep the link shareable (the older ?live= is replaced by ?offline=)
 if "live" in st.query_params:
@@ -1172,6 +1319,7 @@ for _k in ("ra", "dec"):                   # used once on load; the target now h
     if _k in st.query_params:
         del st.query_params[_k]
 share_view()
+start_preload()
 
 st.markdown(
     '<div class="app-footer">SPHEREx / IRSA, Gaia DR3, CatWISE2020, SIMBAD'
