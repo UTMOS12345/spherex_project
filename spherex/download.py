@@ -41,8 +41,11 @@ CACHE_DIR = CACHE_ROOT / "cutouts"
 # (a north-up view of up to ~10' fits inside, whatever the frame's rotation).
 DOWNLOAD_DEG = 0.25
 
-# Layers dropped before saving: the PSF cube is ~5 MB per file, ~95% of a cutout, and
-# nothing in this project uses it. WCS-WAVE (the wavelength map) is kept.
+# Layers dropped before saving: the PSF cube (EPSF in DR1 files) is ~4 MB per file, over 90% of
+# a cutout, and nothing in this project uses it. WCS-WAVE (the wavelength map) is kept.
+# IRSA's cutout service cannot leave it out: it takes only center= and size=, cuts every image
+# layer and returns the PSF whole (checked 16 Nov 2026: ext=, hdu=, extension=, exclude= are
+# ignored, 4.37 MB each; gzip=true saves 9%). So it is downloaded, then stripped here.
 DROP_LAYERS = ("PSF", "EPSF")
 
 _CACHE_LOCK = threading.RLock()
