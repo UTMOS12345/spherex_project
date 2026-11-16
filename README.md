@@ -79,12 +79,17 @@ Tested with Python 3.14. Run the commands from this folder.
 ```
 python -m venv .venv
 .venv/bin/pip install -r requirements.txt
-SPHEREX_DEMO=1 .venv/bin/streamlit run app.py
+.venv/bin/streamlit run app.py
 ```
 
-`SPHEREX_DEMO=1` (or `api.set_demo_mode(True)` in code) is the setting for a live demo: no
-downloads, and every server call gets one short try, so nothing can hang; images not in
-`cache/` are skipped. Without it, new targets are downloaded from IRSA.
+The app starts live: a view that needs images not downloaded yet says how many (and roughly
+how long) and waits for its Download button; up to `SPHEREX_DOWNLOAD_WORKERS` images (default
+6) download at once. The **Offline** toggle at the top uses downloaded data only.
+
+`SPHEREX_DEMO=1` (or `api.set_demo_mode(True)` in code) is the setting for a public demo: the
+app starts with Offline on, nothing is downloaded, and every server call gets one short try, so
+nothing can hang; images not in `cache/` are skipped. A link can set it with `?offline=1` or
+`?offline=0`.
 
 `cache/` (about 3 GB of cutouts, plus frame lists and catalogue cones) is found next to the
 `spherex/` package whatever folder Python starts in; set `SPHEREX_CACHE=/path` to use another.
@@ -214,6 +219,7 @@ This tool uses:
 - `app.py` the Streamlit app.
 - `tools/` command-line scripts: `prepare_demo.py`, `make_gallery.py` fill `demo/` with backup
   results; `explore.py` writes extra products to `out/`. Run them from the repo root.
+  `strip_psf.py IN OUT` writes copies of old cutouts without their unused PSF layer (~93% smaller).
 - `docs/` `API.md`; `docs/history/` earlier review notes and the cleanup plan.
 - `tests/` pytest tests (`pip install -r requirements-dev.txt`, then `pytest`).
 - `cache/` frame lists, cutouts, Gaia and CatWISE cones. Cutouts are not tracked; ship or rebuild

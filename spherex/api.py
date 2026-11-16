@@ -30,7 +30,7 @@ from .asteroids import known_asteroids, draw_asteroids
 from .clean import clean_frame, BAD_FLAGS
 from .combine import deep_image, minus_mean, difference_series, band_difference, rgb_image
 from .diff import difference, make_gif, shared_norm, hold_counts
-from .download import get_cutout, get_cutouts
+from .download import get_cutout, get_cutouts, counting, DownloadCount
 from .epochs import assign_epochs, make_epochs, parse_detectors, CLIP_MIN_FRAMES
 from .frames import load_or_find_frames
 from .gaia import gaia_overlay, draw_gaia
@@ -722,10 +722,14 @@ def _spectrum_table(spec, binned, visit):
 
 
 def _with_warning(fig, table, warning):
-    """Put a neighbour warning on the figure (bottom line) and in table.meta['warning']."""
+    """Put a neighbour warning on the figure (bottom lines) and in table.meta['warning'].
+    The plot is moved up far enough for the wrapped warning to sit below the axis labels."""
     if warning:
         table.meta["warning"] = warning
-        fig.subplots_adjust(bottom=max(fig.subplotpars.bottom, 0.22))
+        w_in, h_in = fig.get_size_inches()
+        n_lines = -(-len(warning) // max(1, int(w_in * 72 / (7 * 0.55))))   # ~chars per line at 7 pt
+        need = fig.subplotpars.bottom + n_lines * 7 * 1.25 / (h_in * 72) + 0.02
+        fig.subplots_adjust(bottom=max(fig.subplotpars.bottom, 0.22, need))
         fig.text(0.01, 0.01, "⚠ " + warning, fontsize=7, color="#eda100", ha="left", va="bottom", wrap=True)
     return fig, table
 
@@ -832,6 +836,23 @@ def spectrum_figure(text, visit=-1, all_visits=False, progress=None):
     result = _with_warning(fig, table, _join(SATURATED_NOTE if saturated else None, neighbours))
     report(progress, DRAWING, 1, 1)
     return result
+
+
+def count_downloads(fn, *args, **kwargs):
+    """How many images an api call would download, without downloading or measuring anything
+    -> dict(missing=files to download, total=images it uses).
+    fn is an api function and *args, **kwargs its arguments, e.g.
+        count_downloads(light_curve_figure, "WISE 0855", band=4.5, tol=0.02)
+    The call runs up to its first batch of images (a new target is searched on IRSA first, as
+    the call itself would) and stops there. In demo mode, or when the pictures are already in
+    memory, missing is 0. A function that fetches several batches (picture kind 'banddiff' or
+    'rgb') reports the first one only: count epochs() per detector for those."""
+    with counting():
+        try:
+            fn(*args, **kwargs)
+        except DownloadCount as c:
+            return dict(missing=c.missing, total=c.total)
+    return dict(missing=0, total=0)
 
 
 def molecule_bands():

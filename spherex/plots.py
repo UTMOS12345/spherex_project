@@ -2,6 +2,7 @@
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 from astropy.time import Time
 
@@ -223,7 +224,10 @@ def plot_light_curve_simple(lc, title, out_png=None, gap_days=30, span_mjd=None)
     if corner:
         ax.text(0.99, 0.98, "\n".join(corner), transform=ax.transAxes, ha="right", va="top", fontsize=8,
                 color=THEME["flag"])
-    fig.autofmt_xdate()
+    # short horizontal date labels: rotated ones ran into the axis label below them
+    locator = mdates.AutoDateLocator(minticks=4, maxticks=8)
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
     fig.tight_layout()
     if out_png:
         fig.savefig(out_png)
