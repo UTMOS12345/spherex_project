@@ -34,7 +34,6 @@ from spherex import api, set_style
 from spherex.download import download_workers
 from spherex.progress import Estimate
 
-TARGETS = ["Barnard's Star", "Epsilon Indi B", "WISE 0855", "RW Aur", "R Draconis"]
 REPO_URL = "REPO_URL"                       # placeholder: replace with the repository link
 VIEWS = ["video", "compare", "overlays", "light curve", "spectrum", "data", "about"]
 MODES = ["normal", "difference", "minusmean"]
@@ -323,7 +322,10 @@ def embed_html(html, height):
 @st.cache_data(show_spinner=False, max_entries=24)
 def cached_defaults(text, live):
     """detector/band/tolerance for a target. `live` is only part of the cache key: when live, a
-    name lookup may reach the network, so the two modes must not share a result."""
+    name lookup may reach the network, so the two modes must not share a result. No target (the
+    start screen): the general defaults, without a name lookup."""
+    if not text.strip():
+        return dict(api.OTHER_DEFAULTS)
     return call(api.defaults, text)
 
 
@@ -453,6 +455,9 @@ def plural(n, word):
     return f"{n} {word}" + ("" if n == 1 else "s")
 
 
+START_HINT = ("Type a star name or coordinates. The first view downloads from NASA's archive "
+              "(about 1-3 min); after that it opens instantly.")
+
 EVERY_FRAME_NOTE = ("single exposures: brightness flickers because each frame sees a slightly "
                     "different wavelength; fast movers such as asteroids show here and not in "
                     "stacked pictures.")
@@ -500,22 +505,22 @@ def url_warn(text):
 
 
 def url_target():
-    """Target from the link: ?target=<name>, else ?ra=<deg>&dec=<deg>, else Barnard's Star.
-    Coordinates that are not numbers or out of range are ignored with a warning."""
+    """Target from the link: ?target=<name>, else ?ra=<deg>&dec=<deg>, else none (the start
+    screen). Coordinates that are not numbers or out of range are ignored with a warning."""
     name = (q.get("target") or "").strip()
     if name:
         return name
     ra, dec = q.get("ra"), q.get("dec")
     if ra is None and dec is None:
-        return "Barnard's Star"
+        return ""
     try:
         ra, dec = float(ra), float(dec)
         if not (0 <= ra < 360 and -90 <= dec <= 90):
             raise ValueError
     except (TypeError, ValueError):
         url_warn("the ra/dec in the link are not valid coordinates (ra 0-360, dec -90 to 90 degrees), "
-                 "so Barnard's Star is shown instead.")
-        return "Barnard's Star"
+                 "so they were ignored.")
+        return ""
     return f"{ra} {dec}"
 
 
@@ -546,12 +551,6 @@ def first_setup():
     st.session_state["days"] = url_days()               # time step; not a widget key, so it survives view changes
     st.session_state["real_time"] = q.get("rt") == "1"  # player holds each picture for its time gap
     st.session_state["_defaults_for"] = st.session_state["target"]
-
-
-def pick_target(name):
-    """A test-target button was pressed: use the detector and wavelength cached for it."""
-    st.session_state["target"] = name
-    st.session_state["_defaults_for"] = None
 
 
 def refresh_defaults():
@@ -1101,12 +1100,7 @@ st.markdown('<p class="lede">enter a name or coordinates to see how a patch of s
 st.text_input("target (name or coordinates)", key="target",
               placeholder="Barnard's Star, WISE 0855, 133.795 -7.245",
               help="A name, or coordinates like 133.795 -7.245 (degrees) or "
-                   "08h55m10.8s -07d14m42.5s. The five buttons below are the test targets.")
-
-cols = st.columns(len(TARGETS))
-for col, name in zip(cols, TARGETS):
-    col.button(name.lower(), key=f"pick_{name}", use_container_width=True,
-               on_click=pick_target, args=(name,))
+                   "08h55m10.8s -07d14m42.5s.")
 
 refresh_defaults()                  # before the detector box, so its state is already right
 
@@ -1139,7 +1133,7 @@ if view == "about":
     about_panel()                       # no api call: works before a target resolves
 else:
     if not st.session_state["target"].strip():
-        st.warning("enter a target name or coordinates.")
+        st.caption(START_HINT)          # the start screen: nothing loads until a target is typed
         st.stop()
     if not guarded(header):             # unknown target: one message, no view underneath
         st.stop()
