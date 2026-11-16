@@ -1,14 +1,16 @@
 """Prepare the demo: download everything the five challenge targets need, then save a backup
 copy of every result (GIF, difference, overlays, light curve, spectrum) in demo/<target>/.
 
-    python prepare_demo.py                      # all five targets
-    python prepare_demo.py --only "WISE 0855"   # one target
-    python prepare_demo.py --refresh            # search IRSA again first (new data releases)
-    python prepare_demo.py --all-frames         # download EVERY frame, not just the needed ones
+    python tools/prepare_demo.py                # all five targets
+    python tools/prepare_demo.py --only "WISE 0855"   # one target
+    python tools/prepare_demo.py --refresh      # search IRSA again first (new data releases)
+    python tools/prepare_demo.py --all-frames   # download EVERY frame, not just the needed ones
 
 Safe to stop (Ctrl+C) and run again: finished downloads are skipped. One failed step never
 stops the rest; a summary is written to demo/SUMMARY.txt.
 """
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))   # repo root, so tools/ can import spherex
 import argparse
 import os
 import re
@@ -170,7 +172,7 @@ def run_target(name, cfg, a, log):
         import sys
         import explore
         old = sys.argv
-        sys.argv = ["explore.py", name, "--detector", cfg["detector"], "--fov", str(FIELD_ARCMIN)]
+        sys.argv = ["tools/explore.py", name, "--detector", cfg["detector"], "--fov", str(FIELD_ARCMIN)]
         try:
             explore.main()
         finally:

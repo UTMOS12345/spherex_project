@@ -50,8 +50,8 @@ MAX_FOV = 10.0            # arcmin served from the standard downloads
 TIME_STEPS = {"per visit": 60, "monthly": 30, "weekly": 7, "every frame": 0}
 _memory = {}              # stacks already made in this process: key -> list of epochs
 
-# Settings whose images prepare_demo.py downloads for the challenge targets: with these the
-# app runs from cache/ without downloads. prepare_demo.py reads this table too.
+# Settings whose images tools/prepare_demo.py downloads for the challenge targets: with these the
+# app runs from cache/ without downloads. tools/prepare_demo.py reads this table too.
 DEMO_DEFAULTS = {
     "Barnard's Star": dict(detector="D2", band=1.3, tol=0.02),   # moves fast; saturated -> no fluxes
     "WISE 0855":      dict(detector="D6", band=4.5, tol=0.02),   # cold brown dwarf: only seen at 4-5 um

@@ -1,12 +1,12 @@
 """Explore a target: every way of adding and subtracting pictures, colour, spectra per visit,
 and known asteroids. Results go to out/<target>/.
 
-    python explore.py "WISE 0855"                         # everything, with sensible defaults
-    python explore.py "WISE 0855" --detector D5+D6        # pictures from D5 and D6 combined
-    python explore.py "Barnard's Star" --a 0 --b 2        # difference of visit 2 minus visit 0
-    python explore.py "WISE 0855" --band-diff D6,D2       # colour difference: D6 minus scaled D2
-    python explore.py "WISE 0855" --rgb D6,D3,D1          # colour picture: red, green, blue
-    python explore.py "R Draconis" --only spectra         # just one product
+    python tools/explore.py "WISE 0855"                   # everything, with sensible defaults
+    python tools/explore.py "WISE 0855" --detector D5+D6  # pictures from D5 and D6 combined
+    python tools/explore.py "Barnard's Star" --a 0 --b 2  # difference of visit 2 minus visit 0
+    python tools/explore.py "WISE 0855" --band-diff D6,D2 # colour difference: D6 minus scaled D2
+    python tools/explore.py "WISE 0855" --rgb D6,D3,D1    # colour picture: red, green, blue
+    python tools/explore.py "R Draconis" --only spectra   # just one product
 
 Products (--only one of these):
     deep        all visits ADDED            -> deep.png
@@ -18,6 +18,8 @@ Products (--only one of these):
     spectra     spectrum of every visit     -> spectra_visits.png
     asteroids   known asteroids/comets      -> asteroids.png
 """
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))   # repo root, so tools/ can import spherex
 import argparse
 import os
 import re

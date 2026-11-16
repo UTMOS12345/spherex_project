@@ -39,7 +39,7 @@ ssh root@YOUR_DROPLET_IP 'chown -R spherex:spherex /srv/spherex-cache'
 Or rebuild on the server (about 2 hours for the five demo targets):
 
 ```bash
-sudo -u spherex bash -c 'set -a; . /etc/spherex.env; set +a; cd /srv/spherex && .venv/bin/python prepare_demo.py --refresh --skip-explore'
+sudo -u spherex bash -c 'set -a; . /etc/spherex.env; set +a; cd /srv/spherex && .venv/bin/python tools/prepare_demo.py --refresh --skip-explore'
 ```
 
 Keep `SPHEREX_CACHE_MAX_GB` in `/etc/spherex.env` below the free disk space; the

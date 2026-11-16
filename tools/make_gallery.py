@@ -1,8 +1,8 @@
 """Make every result for every challenge target - always a real picture, never a placeholder.
 
-    python make_gallery.py                 # from cache/; downloads only what a product cannot do without
-    python make_gallery.py --only "RW Aur"
-    python make_gallery.py --download      # download ALL missing frames first (slow: ~9 s per frame)
+    python tools/make_gallery.py           # from cache/; downloads only what a product cannot do without
+    python tools/make_gallery.py --only "RW Aur"
+    python tools/make_gallery.py --download# download ALL missing frames first (slow: ~9 s per frame)
 
 For each target, demo/<target>/ gets one file per product below. Status of each:
     READY         made from every image
@@ -12,6 +12,8 @@ A product that cannot be made at all from cache/ triggers a download of the imag
 needs, then is made. demo/STATUS.md lists everything; demo/index.html shows it all.
 Run prepare_demo.py first (it makes flipbook, difference, overlay).
 """
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))   # repo root, so tools/ can import spherex
 import argparse
 import html
 import os
@@ -170,7 +172,7 @@ def run_target(name, cfg, download):
         path = folder / file
         if make is None:                                   # made by prepare_demo.py
             rows.append((file, title, "READY" if path.exists() else "FAILED",
-                         "" if path.exists() else "missing: run python prepare_demo.py --skip-explore"))
+                         "" if path.exists() else "missing: run python tools/prepare_demo.py --skip-explore"))
             continue
         t0 = time.time()
         try:
@@ -198,7 +200,7 @@ def run_target(name, cfg, download):
             elif cached < total:
                 status = "PARTIAL"
                 warning = (f"Made from the {cached} of {total} images in cache/; the other {total - cached} "
-                           f"{'is' if total - cached == 1 else 'are'} at IRSA (python make_gallery.py --download --only \"{name}\"). " + warning)
+                           f"{'is' if total - cached == 1 else 'are'} at IRSA (python tools/make_gallery.py --download --only \"{name}\"). " + warning)
             else:
                 status = "READY"
             if saturated and file in SATURATION_SENSITIVE:
