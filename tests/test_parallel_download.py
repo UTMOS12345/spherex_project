@@ -86,3 +86,14 @@ def test_worker_setting(monkeypatch):
     assert download.download_workers() == 6
     monkeypatch.delenv("SPHEREX_DOWNLOAD_WORKERS")
     assert download.download_workers() == 6
+
+
+def test_counting_stops_before_any_download(fake_irsa):
+    folder, calls = fake_irsa
+    download.get_cutouts(_requests(4)[:3], workers=6)           # frames 0-2 cached
+    with download.counting(), pytest.raises(download.DownloadCount) as c:
+        download.get_cutouts(_requests(8), workers=6)           # 5 new frames, 2 repeats
+    assert (c.value.missing, c.value.total) == (5, 10)
+    assert len(calls) == 3                                      # nothing downloaded while counting
+    assert len(download.get_cutouts(_requests(8), workers=6)) == 10   # normal again afterwards
+    assert len(calls) == 8

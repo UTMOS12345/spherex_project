@@ -4,10 +4,13 @@ Built so far: page skeleton, target search with its options, the video view (int
 player + gif export), the overlays view, the spectrum view, the light curve view, the about
 view, the compare view (deep, pair, band difference, colour) and the data view.
 
-    $env:SPHEREX_DEMO="1"; .venv\Scripts\python.exe -m streamlit run app.py
+    .venv/bin/streamlit run app.py                     # local use: live, downloads on request
+    SPHEREX_DEMO=1 .venv/bin/streamlit run app.py      # public demo: starts offline
 
-Demo mode is on unless the URL has ?live=1. Every API call goes through one lock, and
-only the view the user chose is built on a rerun.
+Live is the default: a view that needs images not downloaded yet first says how many and
+waits for its Download button. The "Offline" toggle (or SPHEREX_DEMO=1, or ?offline=1 in the
+link) uses downloaded data only. Every API call goes through one lock, and only the view the
+user chose is built on a rerun.
 """
 import contextvars
 import json
@@ -21,6 +24,7 @@ import matplotlib.pyplot as plt
 import streamlit as st
 
 from spherex import api, set_style
+from spherex.download import download_workers
 from spherex.progress import Estimate
 
 TARGETS = ["Barnard's Star", "Epsilon Indi B", "WISE 0855", "RW Aur", "R Draconis"]
@@ -94,15 +98,74 @@ st.markdown(
 )
 
 q = st.query_params
-LIVE = q.get("live") == "1"
-api.set_demo_mode(not LIVE)                 # before the first API call, always
+LIVE = True                                 # set from the Offline toggle on every run (first_setup, page)
+
+
+def initial_offline():
+    """The Offline toggle at first load: ?offline=1/0 in the link, else the older ?live=1/0,
+    else SPHEREX_DEMO=1 (a public demo server starts offline), else live (local use)."""
+    if q.get("offline") in ("0", "1"):
+        return q.get("offline") == "1"
+    if q.get("live") in ("0", "1"):
+        return q.get("live") == "0"
+    return os.environ.get("SPHEREX_DEMO", "0") == "1"
 
 
 # ------------------------------------------------------------------ helpers
 def call(fn, *args, **kwargs):
-    """Every api call goes through here: one lock for the whole app."""
+    """Every api call goes through here: one lock for the whole app. Demo (offline) mode is one
+    switch for the whole process, so it is set for this visitor's choice inside the lock."""
     with LOCK:
+        api.set_demo_mode(not LIVE)
         return fn(*args, **kwargs)
+
+
+# Measured with SPHEREX_DOWNLOAD_WORKERS=1 and =6 on a new target (see the app-focus report):
+# about this many seconds per image, one stream; parallel streams share it.
+SECONDS_PER_IMAGE = 9.0
+PARALLEL_SPEEDUP = {1: 1.0}                 # workers -> measured speed-up; others: interpolated
+
+
+def download_time(n):
+    """Rough time for n new images at the current number of download workers -> 'about 1-2 min'."""
+    workers = min(download_workers(), max(n, 1))
+    speedup = PARALLEL_SPEEDUP.get(workers, max(1.0, 0.75 * workers))
+    seconds = n * SECONDS_PER_IMAGE / speedup
+    lo, hi = seconds * 0.7, seconds * 1.5
+    if hi < 60:
+        return "under a minute"
+    if lo < 60:
+        return f"about 1-{max(2, round(hi / 60))} min"
+    return f"about {round(lo / 60)}-{max(round(lo / 60) + 1, round(hi / 60))} min"
+
+
+def count_missing(fn, *args, **kwargs):
+    """Live mode: how many images fn(*args, **kwargs) would download (api.count_downloads), or 0.
+    A failure gives 0: the real call then shows its own message."""
+    if not LIVE:
+        return 0
+    try:
+        with st.spinner("checking which images are downloaded..."):
+            return call(api.count_downloads, fn, *args, **kwargs)["missing"]
+    except Exception:
+        return 0
+
+
+def download_note(n, what="this"):
+    """One line before a long call: how many images it will download and how long that takes."""
+    st.info(f"{what} needs {plural(n, 'image')} from IRSA that {'is' if n == 1 else 'are'} not "
+            f"downloaded yet ({download_time(n)}). Turn on Offline to see only downloaded data.")
+
+
+def download_gate(key, fn, *args, **kwargs):
+    """For views that load by themselves: True when nothing has to be downloaded (or Offline is
+    on), or in the run where the Download button was pressed; otherwise shows the count with the
+    button and returns False, so nothing starts automatically."""
+    n = count_missing(fn, *args, **kwargs)
+    if not n:
+        return True
+    download_note(n, "this view")
+    return st.button(f"download {plural(n, 'image')}", key=f"dl|{key}", type="primary")
 
 
 def guarded(panel):
@@ -112,10 +175,11 @@ def guarded(panel):
         panel()
         return True
     except ValueError as e:
-        msg = str(e)
+        msg = str(e).replace(" Demo mode uses only images already in cache/.",
+                             " Offline is on: only downloaded images are used.")
         # api._epochs uses this wording when demo mode has no cached images for the request
         if api.demo_mode() and "offline cache" in msg:
-            st.warning(msg)
+            st.warning(msg.replace("Untick demo mode", "Turn off Offline at the top"))
         else:
             st.error(msg)
     except Exception:
@@ -219,8 +283,6 @@ def share_view():
         params["ra"], params["dec"] = f"{info['ra']:.5f}", f"{info['dec']:.5f}"
     except Exception:
         pass
-    if LIVE:
-        params["live"] = "1"
     tail = "?" + urlencode(params)
     base = os.environ.get("SPHEREX_PUBLIC_URL", "").rstrip("/")
     st.caption("share this view")
@@ -253,8 +315,8 @@ def embed_html(html, height):
 
 @st.cache_data(show_spinner=False, max_entries=24)
 def cached_defaults(text, live):
-    """detector/band/tolerance for a target. `live` is only part of the cache key: with
-    ?live=1 a name lookup may reach the network, so the two modes must not share a result."""
+    """detector/band/tolerance for a target. `live` is only part of the cache key: when live, a
+    name lookup may reach the network, so the two modes must not share a result."""
     return call(api.defaults, text)
 
 
@@ -452,8 +514,11 @@ def url_target():
 
 def first_setup():
     """Fill st.session_state once, starting from the URL."""
+    global LIVE
     if "target" in st.session_state:
         return
+    st.session_state["offline"] = initial_offline()
+    LIVE = not st.session_state["offline"]
     st.session_state["target"] = url_target()
     if "fov" in q:
         try:
@@ -537,6 +602,9 @@ def video_panel():
     fov = float(st.session_state["fov"])
     clip = not st.session_state["raw"]
     days = st.session_state["days"]
+    if not download_gate("video|" + "|".join(str(x) for x in (text, detector, fov, wl, clip, days)),
+                         api.epochs, text, detector=detector, fov=fov, wl=wl, days=days, clip=clip):
+        return
     with st.spinner("building the pictures..."):
         pictures = choose_pictures(text, detector, fov, wl, clip, days)
     if pictures == ():
@@ -596,8 +664,13 @@ def overlays_panel():
     wise = c2.checkbox("wise", True, key="ov_wise")
     asteroids = c3.checkbox("asteroids", False, key="ov_asteroids")
     if asteroids and not LIVE:
-        # the asteroid lookup is a network query, so demo mode must not wait for it
-        st.caption("asteroid positions need the network, so they are not drawn in demo mode.")
+        # the asteroid lookup is a network query, so offline mode must not wait for it
+        st.caption("asteroid positions need the network, so they are not drawn while Offline is on.")
+    text, det, fov, days = (st.session_state["target"], target_detector(), float(st.session_state["fov"]),
+                            st.session_state["days"])
+    if not download_gate(f"overlays|{text}|{det}|{fov}|{days}", api.overlay_figure, text, det, fov,
+                         gaia=False, wise=False, asteroids=False, days=days):
+        return
     with st.spinner("querying catalogues..."):
         fig, notes = with_progress(lambda p: call(
             api.overlay_figure, st.session_state["target"], target_detector(),
@@ -642,7 +715,10 @@ def spectrum_panel():
     idx = st.selectbox("visit", list(range(len(labels))), index=len(labels) - 1,
                        format_func=labels.__getitem__, disabled=every, key=f"spec_visit|{text}")   # per target: starts at its latest visit
 
-    if not st.button("measure", key="spec_run"):
+    n = count_missing(api.spectrum_figure, text, visit=idx, all_visits=every)
+    if n:
+        download_note(n, "this spectrum")
+    if not st.button(f"download {plural(n, 'image')} and measure" if n else "measure", key="spec_run"):
         return                                  # the spectrum is only measured on a press
     with st.spinner("measuring the spectrum..."):
         fig, table = with_progress(lambda p: call(api.spectrum_figure, text, visit=idx, all_visits=every,
@@ -690,7 +766,10 @@ def light_curve_panel():
              "A wider window mixes wavelengths, which can look like variability, so this "
              "stops at the library's safe limit.")
 
-    if not st.button("measure", key="lc_run"):
+    n = count_missing(api.light_curve_figure, text, band=float(band), tol=float(tol))
+    if n:
+        download_note(n, "this light curve")
+    if not st.button(f"download {plural(n, 'image')} and measure" if n else "measure", key="lc_run"):
         return                              # the light curve is only measured on a press
     with st.spinner("measuring the light curve..."):
         fig, table = with_progress(lambda p: call(api.light_curve_figure, text, band=float(band), tol=float(tol),
@@ -736,6 +815,9 @@ def compare_panel():
     days = st.session_state["days"]
 
     # the deep picture is the whole set of visits, so it loads with the view
+    if not download_gate("compare|" + "|".join(str(x) for x in (text, detector, fov, wl, clip, days)),
+                         api.epochs, text, detector=detector, fov=fov, wl=wl, days=days, clip=clip):
+        return
     table = with_progress(lambda p: cached_epochs(text, detector, fov, wl, clip, days, None, LIVE, _progress=p))
     with st.spinner("adding the visits..."):
         fig = with_progress(lambda p: call(api.picture, text, kind="deep", detector=detector, fov=fov, wl=wl,
@@ -798,7 +880,12 @@ def compare_panel():
         short_det = c2.selectbox("short wavelength detector", dets,
                                  index=dets.index("D2") if "D2" in dets else 0,
                                  key=f"cmp_short|{text}")
-        if st.button("band difference", key="cmp_band"):
+        n = sum(count_missing(api.epochs, text, detector=d, fov=fov, days=days, clip=clip)
+                for d in {long_det, short_det})
+        if n:
+            download_note(n, "the band difference")
+        if st.button(f"download {plural(n, 'image')}, then band difference" if n else "band difference",
+                     key="cmp_band"):
             if long_det == short_det:
                 st.info("choose two different detectors for the band difference.")
             else:
@@ -823,7 +910,12 @@ def compare_panel():
         red = c1.selectbox("red", dets, index=dets.index(order[0]), key=f"cmp_red|{text}")
         green = c2.selectbox("green", dets, index=dets.index(order[1]), key=f"cmp_green|{text}")
         blue = c3.selectbox("blue", dets, index=dets.index(order[2]), key=f"cmp_blue|{text}")
-        if st.button("colour picture", key="cmp_rgb"):
+        n = sum(count_missing(api.epochs, text, detector=d, fov=fov, days=days, clip=clip)
+                for d in {red, green, blue})
+        if n:
+            download_note(n, "the colour picture")
+        if st.button(f"download {plural(n, 'image')}, then colour picture" if n else "colour picture",
+                     key="cmp_rgb"):
             if len({red, green, blue}) < 3:
                 st.info("choose three different detectors for the colour picture.")
             else:
@@ -891,8 +983,7 @@ def data_panel():
     st.button("check for new data", key="data_refresh", disabled=not LIVE,
               on_click=bump_refresh, args=(text,))
     if not LIVE:
-        st.caption("checking for new data needs the network, so it only works in live mode "
-                   "(?live=1).")
+        st.caption("checking for new data needs the network: turn off Offline at the top.")
 
 
 ABOUT_LIMITS = [
@@ -906,8 +997,8 @@ ABOUT_LIMITS = [
                        "star itself."),
     ("stacks", "a stack adds frames together. that helps faint things and hides anything that "
                "moves or changes fast, such as a fast asteroid."),
-    ("asteroids", "the positions of known asteroids are looked up online, so in demo mode there "
-                  "is no network and they are not drawn."),
+    ("asteroids", "the positions of known asteroids are looked up online, so with Offline on "
+                  "they are not drawn."),
 ]
 
 
@@ -992,6 +1083,7 @@ def about_panel():
 
 # ------------------------------------------------------------------ page
 first_setup()
+LIVE = not st.session_state.setdefault("offline", initial_offline())
 st.title("SPHEREx Flipbook")
 for _w in st.session_state.pop("_url_warnings", []):    # bad values in the link: said once, then ignored
     st.warning(_w)
@@ -1024,12 +1116,12 @@ with st.expander("options"):
     st.toggle("raw average (no clipping)", key="raw",
               help="Plain average instead of the clipped mean: keeps flares and fast movers, and also defects.")
 
-if LIVE:
-    st.caption("live mode: new targets and settings may download from IRSA (this can take "
-               "minutes).")
-else:
-    st.caption("demo mode: only images already in cache/ are shown. Add ?live=1 to the URL "
-               "to allow downloads.")
+st.toggle("Offline (only use downloaded data)", key="offline",
+          help="On: nothing is downloaded; views show what is already on this computer. "
+               "Off: a view that needs new images says how many and waits for its Download button.")
+LIVE = not st.session_state["offline"]
+if not LIVE:
+    st.caption("offline: only images already downloaded are shown.")
 
 view = st.segmented_control("view", VIEWS, key="view", label_visibility="collapsed",
                             selection_mode="single") or "video"
@@ -1058,8 +1150,11 @@ else:
     elif view == "data":
         guarded(data_panel)
 
-# keep the link shareable; ?live=1 is left alone because it is not ours
+# keep the link shareable (the older ?live= is replaced by ?offline=)
+if "live" in st.query_params:
+    del st.query_params["live"]
 st.query_params.update(
+    offline="1" if st.session_state["offline"] else "0",
     target=st.session_state["target"],
     detector=st.session_state["detector"],
     fov=f"{float(st.session_state['fov']):.1f}",

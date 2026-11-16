@@ -18,6 +18,7 @@ once by get_cutouts and prefetch. Results, their order and the file names do not
 it; 1 downloads one after another. Each file is written to a temporary name next to its
 final place and renamed, so the cache never holds a half-written file.
 """
+import contextvars
 import os
 import threading
 import time
@@ -259,6 +260,32 @@ def _fetch_all(jobs, workers, on_done):
             on_done(futures[fut], fut.result())
 
 
+_COUNTING = contextvars.ContextVar("spherex_counting_downloads", default=False)
+
+
+class DownloadCount(BaseException):
+    """Raised by get_cutouts inside counting(): the call stops before downloading anything.
+    missing: files it would download; total: images it asked for. A BaseException, so the
+    `except Exception` blocks of the callers do not swallow it."""
+
+    def __init__(self, missing, total):
+        super().__init__(f"{missing} of {total} images to download")
+        self.missing, self.total = missing, total
+
+
+class counting:
+    """with counting(): ... -> the first get_cutouts call raises DownloadCount instead of
+    downloading or reading any image (for "this needs N images" before a long call)."""
+
+    def __enter__(self):
+        self._token = _COUNTING.set(True)
+        return self
+
+    def __exit__(self, *exc):
+        _COUNTING.reset(self._token)
+        return False
+
+
 def get_cutouts(requests, progress=None, workers=None):
     """Many cutouts: [(url, center, size_deg), ...] -> list in the same order with, per request,
     the local path, or the OSError that get_cutout raised for it (the caller decides whether to
@@ -269,15 +296,19 @@ def get_cutouts(requests, progress=None, workers=None):
     total = len(requests)
     out = [None] * total
     done = 0
-    report(progress, DOWNLOADING, 0, total)
-    missing = {}                                   # cache file name -> request indices
+    local, missing = [], {}                        # missing: cache file name -> request indices
     for i, (url, center, size_deg) in enumerate(requests):
         if net.DEMO_MODE or find_cached(url, center, size_deg) is not None:
-            out[i] = _get_or_error(url, center, size_deg)     # no network: answer at once
-            done += 1
-            report(progress, DOWNLOADING, done, total)
+            local.append(i)
         else:
             missing.setdefault(cache_path(url, center, max(size_deg, DOWNLOAD_DEG)).name, []).append(i)
+    if _COUNTING.get():
+        raise DownloadCount(len(missing), total)
+    report(progress, DOWNLOADING, 0, total)
+    for i in local:                                # no network: answer at once
+        out[i] = _get_or_error(*requests[i])
+        done += 1
+        report(progress, DOWNLOADING, done, total)
 
     def finished(indices, result):
         nonlocal done
