@@ -349,12 +349,18 @@ def target_detector():
 
 def picture_counts(text, detector, fov, wl, clip, days, pictures):
     """api.epochs meta for these settings: n_pictures, n_frames_total, n_few_frames (pictures
-    resting on fewer than 4 frames under the centre), or None. api.epochs shares the stacks the
-    player already built, so this is one cheap call. A failure here drops the line, never the video."""
+    resting on fewer than 4 frames under the centre), plus releases (sorted names) and newest (last
+    frame date), or None. api.epochs shares the stacks the player already built, so this is one
+    cheap call. A failure here drops the line, never the video."""
     try:
-        return dict(cached_epochs(text, detector, fov, wl, clip, days, pictures, LIVE).meta)
+        table = cached_epochs(text, detector, fov, wl, clip, days, pictures, LIVE)
     except Exception:
         return None
+    counts = dict(table.meta)
+    releases = {r.strip() for row in table["releases"] for r in str(row).split(",") if r.strip()}
+    counts["releases"] = sorted(releases)
+    counts["newest"] = max(table["last_date"]) if len(table) else None
+    return counts
 
 
 def choose_pictures(text, detector, fov, wl, clip, days):
@@ -550,6 +556,10 @@ def video_panel():
         if counts["n_few_frames"]:
             line += f", {plural(counts['n_few_frames'], 'picture')} built from few frames"
         st.caption(line + (". " + EVERY_FRAME_NOTE if days == 0 else ""))
+        if counts["releases"]:
+            st.caption(("data release" if len(counts["releases"]) == 1 else "data releases")
+                       + f" used: {', '.join(counts['releases'])} · data as of {counts['newest']} "
+                         "(newest frame shown)")
         if counts["n_few_frames"] and days != 0:     # every frame: all of them, said above
             st.warning(f"{api.FEW_FRAMES_NOTE}: some pictures here rest on fewer than 4 frames "
                        "under the centre, so one bad frame can survive in them.")
