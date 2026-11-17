@@ -256,45 +256,126 @@ def with_progress(run):
         line.clear()
 
 
+# Sky-viewer backgrounds: label, survey ID, and the HiPS servers to try in order.
+# Since about 2026-11-09 CDS (Strasbourg) has been handling a cybersecurity incident and its
+# image-survey server alasky.cds.unistra.fr answers 404 for every survey; status and the CDS list of
+# mirrors: https://cds.unistra.fr/ . aladin-lite 3.6.1 also looks survey IDs up on
+# alasky.unistra.fr / alaskybis.unistra.fr, which do not resolve or answer, so an ID alone shows a
+# grey canvas. Until alasky recovers we pass mirror URLs (checked 2026-11-17: properties, allsky
+# and tiles all 200). Once it does, go back to the IDs (CDS/P/allWISE/color, ...) as `survey`.
+ALADIN_SURVEYS = [
+    ("WISE colour", "CDS/P/allWISE/color", ["https://skies.esac.esa.int/AllWISEColor",
+                                            "https://irsa.ipac.caltech.edu/data/hips/CDS/AllWISE/RGB-W4-W2-W1"]),
+    ("2MASS colour", "CDS/P/2MASS/color", ["https://skies.esac.esa.int/2MASSColor",
+                                           "https://irsa.ipac.caltech.edu/data/hips/CDS/2MASS/Color"]),
+    ("DSS colour", "CDS/P/DSS2/color", ["https://skies.esac.esa.int/DSSColor",
+                                        "https://irsa.ipac.caltech.edu/data/hips/CDS/DSS2/color"]),
+]
+ALADIN_TILE_TIMEOUT_S = 10      # per server: no tile within this time -> next server, then the message
+
 ALADIN_HTML = """<!doctype html><html><head><meta charset="utf-8"></head>
 <body style="margin:0;background:#1a1a19;color:#f0efec;font:13px system-ui, sans-serif">
-<div id="aladin" style="width:100%;height:430px">Loading sky viewer…</div>
+<div id="bar" style="display:none;height:26px;align-items:center;gap:6px">
+  <label for="survey">background</label><select id="survey"></select></div>
+<div id="wrap" style="position:relative">
+  <div id="aladin" style="width:100%;height:420px">Loading sky viewer…</div>
+  <div id="down" style="display:none;position:absolute;inset:0;z-index:100;background:#1a1a19;
+       flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:16px">
+    <div>Sky viewer unavailable (survey server down)</div>
+    <div style="opacity:.7;margin-top:6px">CDS, which normally serves these images, has an outage
+      (Nov 2026), and the mirror servers did not answer either.</div></div>
+</div>
 <script type="module">
-  // aladin-lite ships only an ES module (the CDS "latest/aladin.js" URL returns 404), so it is
-  // imported; any failure (no network, no WebGL2) leaves the message below instead of a blank box.
-  const box = document.getElementById("aladin");
-  try {
-    const { default: A } = await import("https://cdn.jsdelivr.net/npm/aladin-lite@3.6.1/dist/aladin.js");
-    await A.init;
+  const SURVEYS = __SURVEYS__, TIMEOUT_MS = __TIMEOUT_MS__;
+  const box = document.getElementById("aladin"), down = document.getElementById("down");
+  // Server prefixes that have delivered at least one tile (HTTP 200). Browsers without
+  // responseStatus report undefined: counted as delivered, so they never show a false alarm.
+  const served = new Set();
+  new PerformanceObserver(list => {
+    for (const e of list.getEntries()) {
+      const i = e.name.indexOf("/Norder");
+      if (i > 0 && (e.responseStatus === undefined || e.responseStatus === 200)) served.add(e.name.slice(0, i));
+    }
+  }).observe({type: "resource", buffered: true});
+  // This try/catch only covers loading the script and starting Aladin (no network, no WebGL2).
+  // Aladin fetches the survey and its tiles later, asynchronously, and reports nothing back when
+  // that fails, so the watchdog below checks that a tile actually arrived.
+  let A, a, url;
+  const start = (u, target, fov) => {     // a new Aladin view on server u
     box.textContent = "";
-    const a = A.aladin('#aladin', {target: __TARGET__, fov: __FOV__,
-      survey: "CDS/P/allWISE/color", showReticle: true,
-      showLayersControl: true});
+    a = A.aladin('#aladin', {target: target, fov: fov, survey: u,
+      showReticle: true, showLayersControl: false});
     const c = A.catalog({name: 'target', sourceSize: 14, color: 'red'});
     a.addCatalog(c);
     c.addSources([A.source(__RA__, __DEC__, {name: __NAME__})]);
+    url = u;
+  };
+  try {
+    ({ default: A } = await import("https://cdn.jsdelivr.net/npm/aladin-lite@3.6.1/dist/aladin.js"));
+    await A.init;
+    start(SURVEYS[0].urls[0], __TARGET__, __FOV__);
   } catch (e) {
+    a = null;
     box.textContent = "Sky viewer unavailable";
+  }
+  if (a) {
+    // Switch servers. When the current one never delivered a tile, Aladin is still waiting on it
+    // (and on its own fallback survey at CDS, which hangs), and a new layer queues behind that:
+    // so start a new view at the same centre and zoom instead of changing the layer.
+    const use = u => {
+      if (served.has(url)) { a.setBaseImageLayer(u); url = u; }
+      else { const [ra, dec] = a.getRaDec(); start(u, ra + " " + dec, a.getFov()[0]); }
+    };
+    let run = 0;
+    const show = (s, first) => {          // try each server of survey s in turn
+      const me = ++run;
+      down.style.display = "none";
+      const attempt = k => {
+        if (!first || k > 0) use(s.urls[k]);
+        setTimeout(() => {
+          if (me !== run || served.has(s.urls[k])) return;
+          if (k + 1 < s.urls.length) attempt(k + 1);
+          else down.style.display = "flex";
+        }, TIMEOUT_MS);
+      };
+      attempt(0);
+    };
+    const sel = document.getElementById("survey");
+    SURVEYS.forEach((s, i) => sel.add(new Option(s.label, i)));
+    sel.onchange = () => show(SURVEYS[sel.value], false);
+    document.getElementById("bar").style.display = "flex";
+    show(SURVEYS[0], true);
   }
 </script></body></html>"""
 
 
+def _js(value):
+    """A Python value as a JavaScript literal that is safe inside <script> (no "</script>")."""
+    return json.dumps(value).replace("</", "<\\/")
+
+
+def aladin_html(ra, dec, name, fov):
+    """The sky-viewer page for one position; fov in arcmin (None: 15 arcmin)."""
+    surveys = [{"label": label, "id": sid, "urls": urls} for label, sid, urls in ALADIN_SURVEYS]
+    return (ALADIN_HTML.replace("__SURVEYS__", _js(surveys))
+            .replace("__TIMEOUT_MS__", str(int(ALADIN_TILE_TIMEOUT_S * 1000)))
+            .replace("__TARGET__", _js(f"{ra} {dec}"))
+            .replace("__FOV__", repr(float(fov) / 60 if fov else 0.25))
+            .replace("__RA__", repr(float(ra))).replace("__DEC__", repr(float(dec)))
+            .replace("__NAME__", _js(name)))
+
+
 def sky_panel(text, fov):
-    """Optional Aladin Lite viewer (WISE colour images) around the resolved position."""
+    """Optional Aladin Lite viewer (WISE, 2MASS or DSS colour images) around the resolved position."""
     with st.expander("Sky around this target (Aladin Lite)", expanded=False):
         try:
             info = call(api.resolve, text)
         except Exception:
             st.caption("sky viewer unavailable: the target could not be resolved.")
             return
-        ra, dec = float(info["ra"]), float(info["dec"])
-        html = (ALADIN_HTML.replace("__TARGET__", json.dumps(f"{ra} {dec}"))
-                .replace("__FOV__", repr(float(fov) / 60 if fov else 0.25))
-                .replace("__RA__", repr(ra)).replace("__DEC__", repr(dec))
-                .replace("__NAME__", json.dumps(info["name"])))
-        embed_html(html, height=450)
-        st.caption("Background images are from WISE, not SPHEREx, and are years older, so fast-moving "
-                   "stars may look offset.")
+        embed_html(aladin_html(float(info["ra"]), float(info["dec"]), info["name"], fov), height=450)
+        st.caption("Background images are from WISE, 2MASS or DSS, not SPHEREx, and are years older, "
+                   "so fast-moving stars may look offset.")
 
 
 def share_view():
