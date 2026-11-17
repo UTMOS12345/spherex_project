@@ -14,7 +14,7 @@ from .download import get_cutouts
 from . import framecache
 from . import photometry as _phot
 from .progress import report, CLEANING, STACKING
-from .targets import at_time
+from .targets import at_time, at_times
 from .text import plural
 
 CLIP_SIGMA = 4.0          # stacking: a frame's pixel this far from the other frames is dropped
@@ -253,13 +253,15 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
     # frame, 2. clean and align every frame that arrived, 3. combine each epoch. Same frames,
     # same order and same arithmetic as stacking epoch by epoch.
     plan, requests = [], []                               # plan: (epoch, rows, [(det, [(row, i)])])
+    mjds = sorted(set(float(m) for m in frames["mjd"][np.isin(frames["detector"], dets)]))
+    where = dict(zip(mjds, at_times(target, mjds)))       # the target on each frame's date
     for e in sorted(set(frames["epoch"])):
         rows = frames[(frames["epoch"] == e) & np.isin(frames["detector"], dets)]
         per_det = []
         for d in dets:
             items = []
             for row in rows[rows["detector"] == d]:
-                center = at_time(target, Time(row["mjd"], format="mjd"))   # same centre as prefetch
+                center = where[float(row["mjd"])]                # same centre as prefetch
                 items.append((row, len(requests)))
                 requests.append((row["access_url"], center, size_deg))
             per_det.append((d, items))

@@ -26,13 +26,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from astropy.io import fits
-from astropy.time import Time
 from astropy.utils.data import download_file
 
 from . import net
 from .net import with_retries, CACHE_ROOT
 from .progress import report, DOWNLOADING
-from .targets import at_time
+from .targets import at_times
 from .text import plural
 
 CACHE_DIR = CACHE_ROOT / "cutouts"
@@ -380,8 +379,7 @@ def prefetch(frames, target, size_deg=0.1, limit=None, progress=None, workers=No
     rows = frames if limit is None else frames[:limit]
     report(progress, DOWNLOADING, 0, len(rows))
     jobs = []
-    for i, row in enumerate(rows):
-        center = at_time(target, Time(row["mjd"], format="mjd"))
+    for i, (row, center) in enumerate(zip(rows, at_times(target, rows["mjd"]))):
         cached = find_cached(row["access_url"], center, size_deg) is not None
         jobs.append(((i, cached), (row["access_url"], center, size_deg)))
 

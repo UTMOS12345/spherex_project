@@ -380,7 +380,6 @@ def player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, day
     progress: optional callback (spherex.progress), as for flipbook; "drawing" counts pictures."""
     import base64
     import html as _html
-    import io
     import json
     target, eps, titles, norm, cmap = _video_frames(text, detector, fov, mode, wl, days, clip, pictures,
                                                     progress)
