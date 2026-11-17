@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Sky viewer works again during the CDS outage:** since about 2026-11-09 the CDS survey server
+  (alasky) is down, which left the Aladin panel grey with no message. The panel now loads WISE,
+  2MASS and DSS colour images from ESA, falls back to IRSA when no tile arrives within 10 s, and
+  shows "Sky viewer unavailable (survey server down)" when neither answers. Aladin's own
+  layers menu (CDS only) is replaced by a background selector with just those surveys.
 - **Parallel cleaning and aligning:** a view that has to be built cleans and aligns its frames in
   `SPHEREX_WORKERS` processes (default min(CPUs, 8)): a cold Barnard's Star view (61 frames)
   2.2 -> 0.6 s, all six detectors (197 frames) 6.4 -> 1.8 s, with the workers already running
