@@ -46,7 +46,8 @@ MAX_PICK = 40                               # more pictures than this: no "choos
 # once, so every api call runs under this one lock.
 LOCK = threading.Lock()
 
-st.set_page_config(page_title="SPHEREx Flipbook", layout="centered")
+st.set_page_config(page_title="SPHEREx Flipbook", layout="centered",
+                   page_icon=str(Path(__file__).parent / "assets" / "icon.png"))
 set_style(dark=True)                        # one look for every figure the api returns
 st.markdown(
     """
