@@ -196,9 +196,34 @@ def has(source, grid_wcs, shape, bad_flags, keep_saturated_stars, bloom_radius, 
     return entry_path(key).is_file()
 
 
-def cached_layer(source, grid_wcs, shape, compute, bad_flags, keep_saturated_stars, bloom_radius, wl_range):
-    """compute() -> aligned frame (array or None), through the cache when it is on."""
+def lookup(source, grid_wcs, shape, bad_flags, keep_saturated_stars, bloom_radius, wl_range):
+    """(True, frame) when the cache is on and holds it (frame: array, or None = never sees the
+    wavelength range), else (False, None)."""
     if not enabled():
+        return False, None
+    try:
+        key = frame_key(source, grid_wcs, shape, bad_flags, keep_saturated_stars, bloom_radius, wl_range)
+    except OSError:
+        return False, None
+    hit = load(key, shape)
+    if hit is None:
+        return False, None
+    return True, (None if isinstance(hit, str) else hit)
+
+
+def note_writes(n):
+    """Count n entries written by worker processes, so the next sweep() runs."""
+    global _writes
+    with _lock:
+        _writes += n
+
+
+def cached_layer(source, grid_wcs, shape, compute, bad_flags, keep_saturated_stars, bloom_radius, wl_range,
+                 use_cache=None):
+    """compute() -> aligned frame (array or None), through the cache when it is on.
+    use_cache: None = enabled() (SPHEREX_FRAME_CACHE); worker processes get the caller's
+    answer instead, since they only see the environment from when they started."""
+    if not (enabled() if use_cache is None else use_cache):
         return compute()
     try:
         key = frame_key(source, grid_wcs, shape, bad_flags, keep_saturated_stars, bloom_radius, wl_range)

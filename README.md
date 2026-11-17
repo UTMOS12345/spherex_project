@@ -231,7 +231,9 @@ The [tutorial notebook](notebooks/tutorial.ipynb) walks through every view.
 `SPHEREX_CACHE_TTL_DAYS` cap the image cache. Each image cleaned and aligned onto a view's grid
 is kept in `frames_proc/` (about 50 KB per image at 4', 0.3 MB at 10'), so toggling clip or
 changing the time step reuses it. It is capped at 2 GB, least recently used first
-(`SPHEREX_FRAME_CACHE_MAX_GB`); `SPHEREX_FRAME_CACHE=0` turns it off.
+(`SPHEREX_FRAME_CACHE_MAX_GB`); `SPHEREX_FRAME_CACHE=0` turns it off. Frames that are not in it are
+cleaned and aligned by several processes at once (`SPHEREX_WORKERS`, default up to 8; about
+130 MB each while they run, stopped after 10 idle minutes; 1 = one process).
 
 To uninstall, run `pipx uninstall paramost` and delete the cache folder. With Docker, also run
 `docker volume rm paramost-cache`.

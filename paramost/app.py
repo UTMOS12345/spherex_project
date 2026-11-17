@@ -30,7 +30,7 @@ sys.path.insert(1, str(Path(__file__).resolve().parent.parent))
 import matplotlib.pyplot as plt
 import streamlit as st
 
-from spherex import api, set_style, results
+from spherex import api, set_style, results, workers
 from spherex.download import download_workers
 from spherex.net import CACHE_ROOT
 from spherex.progress import Estimate
@@ -1324,6 +1324,10 @@ else:
         st.stop()
     if not guarded(header):             # unknown target: one message, no view underneath
         st.stop()
+    # worker processes for cleaning and aligning frames (SPHEREX_WORKERS): started now, in the
+    # background, so a view that has to build stacks does not wait for their imports. A no-op
+    # when they are already running; they stop after workers.IDLE_S seconds without work.
+    workers.prestart()
 
     intro(view)                         # one grey line: what this view does, what to try
     if not_downloaded_offline():
