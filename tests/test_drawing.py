@@ -53,7 +53,7 @@ def test_player_pixels_match_drawing_from_scratch(kind):
         norm, cmap = shared_norm(images), "gray"
     else:
         norm, cmap = Normalize(-3, 3), "RdBu_r"
-    new = api._player_pngs(images, markers, titles, norm, cmap)
+    new = api._draw_pictures(images, markers, titles, norm, cmap)
     old = _scratch_pngs(images, markers, titles, norm, cmap)
     assert len(new) == len(old) == len(images)
     for a, b in zip(new, old):
@@ -68,3 +68,27 @@ def test_player_reports_progress_and_closes_its_figure():
     api._player_pngs(images, markers, titles, shared_norm(images), "gray", lambda *a: seen.append(a))
     assert [a[1:] for a in seen] == [(0, 3), (1, 3), (2, 3), (3, 3)]
     assert len(plt.get_fignums()) == n_before
+
+
+def test_parallel_drawing_same_pixels(monkeypatch):
+    """Many pictures with the workers running: drawn in chunks by other processes, the same
+    pixels and order as one process; never starts workers by itself."""
+    from spherex import workers
+    monkeypatch.setenv("SPHEREX_WORKERS", "3")
+    workers._shutdown()
+    monkeypatch.setattr(workers, "_failed", False)
+    images, markers, titles = _pictures(5)
+    images, markers, titles = images * 4, markers * 4, [f"{t} #{i}" for i, t in enumerate(titles * 4)]
+    norm = shared_norm(images)
+    one = api._draw_pictures(images, markers, titles, norm, "gray")
+    assert api._player_pngs(images, markers, titles, norm, "gray") and workers._pool is None   # not started
+    workers.prestart()
+    seen = []
+    many = api._player_pngs(images, markers, titles, norm, "gray", lambda *a: seen.append(a[1]))
+    try:
+        assert len(many) == len(one) == 20
+        for a, b in zip(many, one):
+            assert np.array_equal(_pixels(a), _pixels(b))
+        assert seen[0] == 0 and seen[-1] == 20 and seen == sorted(seen)
+    finally:
+        workers._shutdown()

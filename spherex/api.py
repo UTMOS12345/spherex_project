@@ -44,6 +44,7 @@ from .text import plural
 from .wise import wise_overlay
 from . import net
 from . import results
+from . import workers
 from . import cachefiles
 from .net import set_demo_mode            # api.set_demo_mode(True): cached data only, no hangs
 
@@ -423,10 +424,35 @@ show(0); if (F.length > 1) start(); else play.disabled = true;
 </script></body></html>"""
 
 
+PARALLEL_DRAW_MIN = 16    # pictures from which the player is drawn by the worker processes
+DRAW_CHUNK = 8            # pictures per worker task (each task sets up one figure)
+
+
 def _player_pngs(images, markers, titles, norm, cmap, progress=None):
     """The player's pictures -> PNG bytes, one per image (same shape, one norm and colormap).
-    One figure for every picture: the image, ring and title are made once and then only get
-    new data, which draws the same pixels as building them again for each picture."""
+    Many pictures (every-frame videos) are drawn in chunks by the worker processes when they
+    are already running (spherex.workers; never started just for drawing): each chunk is drawn
+    exactly as below, so the pixels are the same."""
+    n = len(images)
+    if n >= PARALLEL_DRAW_MIN and workers.running() and workers.n_workers() > 1:
+        k = max(2, min(workers.n_workers(), -(-n // DRAW_CHUNK)))
+        bounds = [round(i * n / k) for i in range(k + 1)]
+        chunks = [(images[a:b], markers[a:b], titles[a:b], norm, cmap) for a, b in zip(bounds, bounds[1:])]
+        report(progress, DRAWING, 0, n)
+        drawn = [0]
+
+        def chunk_done(i):
+            drawn[0] += bounds[i + 1] - bounds[i]
+            report(progress, DRAWING, drawn[0], n)
+        parts = workers.run(_draw_pictures, chunks, on_done=chunk_done, min_tasks=2, start=False)
+        return [png for part in parts for png in part]
+    return _draw_pictures(images, markers, titles, norm, cmap, progress)
+
+
+def _draw_pictures(images, markers, titles, norm, cmap, progress=None):
+    """_player_pngs in one process. One figure for every picture: the image, ring and title
+    are made once and then only get new data, which draws the same pixels as building them
+    again for each picture."""
     import io
     out = []
     fig, ax = plt.subplots(figsize=(6, 6))

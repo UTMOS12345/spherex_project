@@ -152,17 +152,27 @@ def _note_failure(err):
         print(msg, flush=True)
 
 
-def run(fn, tasks, on_done=None, workers=None):
+def running():
+    """True when the worker processes are up (started by an earlier run or prestart)."""
+    return _pool is not None and not _failed
+
+
+def run(fn, tasks, on_done=None, workers=None, min_tasks=None, start=True):
     """[fn(*t) for t in tasks], in task order, using worker processes when worthwhile.
     fn must be a module-level function (spawn imports it by name); tasks are tuples of small
     picklable values. on_done(i) runs in the calling thread as task i finishes (progress).
-    An exception raised by fn itself is raised here, as it would be serially."""
+    An exception raised by fn itself is raised here, as it would be serially.
+    min_tasks: fewest tasks worth a running pool (default MIN_TASKS). start=False: use the
+    pool only if it is already running, never start one for this call."""
     global _active
     tasks = list(tasks)
     n = n_workers() if workers is None else max(1, int(workers))
     out = [None] * len(tasks)
     done = [False] * len(tasks)
-    enough = len(tasks) >= (MIN_TASKS if _pool is not None else max(MIN_TASKS, MIN_TASKS_NEW_POOL))
+    least = MIN_TASKS if min_tasks is None else min_tasks
+    if _pool is None:
+        least = float("inf") if not start else max(least, MIN_TASKS_NEW_POOL)
+    enough = len(tasks) >= least
     if n > 1 and enough and not _failed:
         with _lock:
             _active += 1

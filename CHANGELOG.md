@@ -6,6 +6,10 @@
   `SPHEREX_WORKERS` processes (default min(CPUs, 8)): a cold Barnard's Star view (61 frames)
   2.2 -> 0.6 s, all six detectors (197 frames) 6.4 -> 1.8 s, with the workers already running
   (the app starts them when a target is shown). Same results for any number of workers.
+- **Faster video player:** one reused figure per video, the crop measured without an extra draw,
+  target positions for all frames in one call, no re-check of cutouts the frame cache already
+  covers, and every-frame videos drawn by the worker processes: a warm view 0.50 -> 0.23 s,
+  every frame 3.2 -> 0.7 s. The pictures are the same, pixel for pixel.
 - **Frame cache:** every image, once cleaned and aligned onto a view's grid, is kept in
   `<cache>/frames_proc/`, so a view that shares images with an earlier one (clip on/off,
   another time step, another detector combination on the same grid) skips that work. Stacks are
