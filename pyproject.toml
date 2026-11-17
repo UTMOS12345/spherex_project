@@ -60,4 +60,4 @@ Changelog = "https://github.com/UTMOS12345/spherex_project/blob/main/CHANGELOG.m
 packages = ["paramost", "spherex"]
 
 [tool.setuptools.package-data]
-paramost = [".streamlit/config.toml"]
+paramost = [".streamlit/config.toml", "assets/icon.png"]
