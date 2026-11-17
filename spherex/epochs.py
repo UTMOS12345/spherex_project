@@ -264,7 +264,10 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
                 requests.append((row["access_url"], center, size_deg))
             per_det.append((d, items))
         plan.append((e, rows, per_det))
-    results = get_cutouts(requests, progress)             # path, or the OSError for that frame
+    # a cutout whose aligned frame is already in the frame cache is not opened to check it
+    trusted = lambda path: framecache.has(path, grid_wcs, shape, bad_flags, keep_saturated_stars,
+                                          BLOOM_RADIUS, wl_range)
+    results = get_cutouts(requests, progress, trusted=trusted)   # path, or the OSError for that frame
 
     n_arrived = sum(not isinstance(r, OSError) for r in results)
     done = 0

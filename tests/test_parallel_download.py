@@ -97,3 +97,27 @@ def test_counting_stops_before_any_download(fake_irsa):
     assert len(calls) == 3                                      # nothing downloaded while counting
     assert len(download.get_cutouts(_requests(8), workers=6)) == 10   # normal again afterwards
     assert len(calls) == 8
+
+
+@pytest.mark.parametrize("demo", [False, True])
+def test_trusted_cached_files_are_not_opened(fake_irsa, monkeypatch, demo):
+    """get_cutouts(trusted=...): a cached file the caller vouches for is used without
+    is_valid_fits (but its mtime is renewed); every other cached file is still checked."""
+    folder, calls = fake_irsa
+    reqs = _requests(6)[:6]
+    first = download.get_cutouts(reqs, workers=1)                  # download all six
+    monkeypatch.setattr(net, "DEMO_MODE", demo)
+    checked = []
+    real_check = download.is_valid_fits
+    monkeypatch.setattr(download, "is_valid_fits", lambda p: checked.append(p) or real_check(p))
+    for p in first:
+        import os
+        os.utime(p, (1, 1))
+    trusted_set = set(first[:4])
+    out = download.get_cutouts(reqs, workers=1, trusted=lambda p: p in trusted_set)
+    assert out == first                                            # same paths, same order
+    assert sorted(checked) == sorted(first[4:])                    # only the untrusted were opened
+    assert all(p.stat().st_mtime > 1 for p in first)               # all touched (cutout LRU)
+    checked.clear()
+    download.get_cutouts(reqs, workers=1)                          # no trusted: all checked as before
+    assert sorted(checked) == sorted(first)

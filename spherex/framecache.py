@@ -186,6 +186,17 @@ def save(key, layer):
         sweep()
 
 
+def has(source, grid_wcs, shape, bad_flags, keep_saturated_stars, bloom_radius, wl_range):
+    """True when the cache is on and holds this frame's result (no reading of the entry)."""
+    if not enabled():
+        return False
+    try:
+        key = frame_key(source, grid_wcs, shape, bad_flags, keep_saturated_stars, bloom_radius, wl_range)
+    except OSError:
+        return False
+    return entry_path(key).is_file()
+
+
 def cached_layer(source, grid_wcs, shape, compute, bad_flags, keep_saturated_stars, bloom_radius, wl_range):
     """compute() -> aligned frame (array or None), through the cache when it is on."""
     if not enabled():

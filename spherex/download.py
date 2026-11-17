@@ -313,19 +313,33 @@ def note_missing(n):
         t.count += n
 
 
-def get_cutouts(requests, progress=None, workers=None):
+def _touch(path):
+    try:
+        os.utime(path)                 # most recently used: the cutout cache evicts it last
+    except OSError:
+        pass
+
+
+def get_cutouts(requests, progress=None, workers=None, trusted=None):
     """Many cutouts: [(url, center, size_deg), ...] -> list in the same order with, per request,
     the local path, or the OSError that get_cutout raised for it (the caller decides whether to
     skip). Cached files are looked up first; the rest are downloaded `workers` at a time
     (default download_workers()); a request repeated in the list is downloaded once.
+    trusted: optional callable(path) -> bool. A cached file it returns True for is used without
+    opening it to check it (is_valid_fits); the caller vouches for its content (the stacker:
+    the frame cache already holds this file's result, keyed by a hash of its bytes).
     progress(stage, done, total) gets "downloading images" before the first and after each one
     (cached files count too)."""
     total = len(requests)
     out = [None] * total
     done = 0
     local, missing = [], {}                        # missing: cache file name -> request indices
+    found = {}                                     # request index -> cached path
     for i, (url, center, size_deg) in enumerate(requests):
-        if net.DEMO_MODE or find_cached(url, center, size_deg) is not None:
+        path = find_cached(url, center, size_deg) if (trusted is not None or not net.DEMO_MODE) else None
+        if path is not None:
+            found[i] = path
+        if net.DEMO_MODE or path is not None:
             local.append(i)
         else:
             missing.setdefault(cache_path(url, center, max(size_deg, DOWNLOAD_DEG)).name, []).append(i)
@@ -333,6 +347,14 @@ def get_cutouts(requests, progress=None, workers=None):
         raise DownloadCount(len(missing), total)
     report(progress, DOWNLOADING, 0, total)
     for i in local:                                # no network: answer at once
+        path = found.get(i)
+        if path is not None and trusted is not None:
+            _touch(path)                           # before hashing: the hash is remembered per mtime
+            if trusted(path):
+                out[i] = path
+                done += 1
+                report(progress, DOWNLOADING, done, total)
+                continue
         out[i] = _get_or_error(*requests[i])
         done += 1
         report(progress, DOWNLOADING, done, total)
