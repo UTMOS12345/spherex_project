@@ -8,7 +8,10 @@ abstract: >-
   2026 (Planet X and SPHEREx).
 type: software
 authors:
-  - alias: UTMOS12345
+  - given-names: Maksudali
+    family-names: Imomaliyev
+    alias: UTMOS12345
+
   - given-names: Shavkat
     family-names: Jumanov
     alias: ShavkatJumanov
