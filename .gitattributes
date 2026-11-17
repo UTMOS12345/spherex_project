@@ -1,0 +1,5 @@
+# GitHub language bar (linguist): count the Python source, not the docs and data.
+*.ipynb linguist-documentation
+docs/*.html linguist-documentation
+# Cached archive query results (Gaia, CatWISE, frame lists): generated data, collapsed in diffs.
+cache/** linguist-generated
