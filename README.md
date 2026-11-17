@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/img/brand/wordmark_1200.png" width="420" alt="PARAMOST"></p>
+
 # SPHEREx Flipbook
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
