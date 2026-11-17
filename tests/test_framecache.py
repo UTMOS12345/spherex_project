@@ -179,3 +179,81 @@ def test_stacker_goes_through_the_cache(fc, monkeypatch):
     b = epochs._aligned_layer(fc, w, shape, BAD_FLAGS, True, None)
     c = epochs._aligned_layer(fc, w, shape, BAD_FLAGS, False, None)    # other setting: computed
     assert len(calls) == 2 and a.tobytes() == b.tobytes() == layer.tobytes() and c is not None
+
+
+def _fill(n, shape=(64, 64)):
+    """n entries of 32 KB + header, mtimes 1000, 1001, ... (key i is the i-th oldest)."""
+    keys = [f"{i:02x}" * 32 for i in range(n)]
+    for i, k in enumerate(keys):
+        framecache.save(k, np.full(shape, float(i)))
+        os.utime(framecache.entry_path(k), (1000 + i, 1000 + i))
+    return keys
+
+
+def test_eviction_removes_least_recently_used(fc, monkeypatch):
+    monkeypatch.delenv("SPHEREX_CACHE_TTL_DAYS", raising=False)
+    monkeypatch.setenv("SPHEREX_FRAME_CACHE_MAX_GB", "0")         # unlimited while filling
+    keys = _fill(10)
+    one = framecache.entry_path(keys[0]).stat().st_size
+    assert framecache.info()["entries"] == 10
+    framecache.load(keys[0], (64, 64))                            # a hit: now the most recent
+    monkeypatch.setenv("SPHEREX_FRAME_CACHE_MAX_GB", str(6.5 * one / 1024 ** 3))
+    n, freed = framecache.sweep(force=True)
+    assert (n, freed) == (4, 4 * one)
+    left = [k for k in keys if framecache.entry_path(k).exists()]
+    assert left == [keys[0]] + keys[5:]                          # 1-4 were the oldest unused
+    assert framecache.info()["size_bytes"] <= 6.5 * one
+    for i, k in enumerate(keys):                                  # nothing broken: hits or clean misses
+        got = framecache.load(k, (64, 64))
+        assert (got is None) == (k not in left)
+        if got is not None:
+            assert (got == float(i)).all()
+
+
+def test_sweep_runs_after_writes_only_and_respects_unlimited(fc, monkeypatch):
+    monkeypatch.delenv("SPHEREX_CACHE_TTL_DAYS", raising=False)
+    monkeypatch.setenv("SPHEREX_FRAME_CACHE_MAX_GB", "0")
+    keys = _fill(5)
+    assert framecache.sweep(force=True) == (0, 0)                # 0 = unlimited
+    monkeypatch.setenv("SPHEREX_FRAME_CACHE_MAX_GB", "1e-9")
+    framecache._writes = 0
+    assert framecache.sweep() == (0, 0)                          # nothing written since: no scan
+    assert all(framecache.entry_path(k).exists() for k in keys)
+    framecache.save("ff" * 32, np.zeros((64, 64)))               # a write, then the next sweep evicts
+    assert framecache.sweep()[0] >= 5
+
+
+def test_ttl_expires_old_entries(fc, monkeypatch):
+    monkeypatch.setenv("SPHEREX_FRAME_CACHE_MAX_GB", "0")
+    monkeypatch.setenv("SPHEREX_CACHE_TTL_DAYS", "1")
+    keys = _fill(3)                                               # mtimes in 1970: expired
+    framecache.save("ff" * 32, np.zeros((64, 64)))               # fresh
+    framecache.sweep(force=True)
+    assert not any(framecache.entry_path(k).exists() for k in keys)
+    assert framecache.entry_path("ff" * 32).exists()
+
+
+def test_default_cap_and_clear(fc, monkeypatch, tmp_path):
+    monkeypatch.delenv("SPHEREX_FRAME_CACHE_MAX_GB", raising=False)
+    assert framecache.max_bytes() == int(framecache.DEFAULT_MAX_GB * 1024 ** 3)
+    _fill(3)
+    cutout = tmp_path / "cutouts" / "keep.fits"                  # a sibling folder: never touched
+    cutout.parent.mkdir()
+    cutout.write_bytes(b"x")
+    n, size = framecache.clear()
+    assert n == 3 and size > 0
+    assert framecache.info()["entries"] == 0 and cutout.exists()
+
+
+def test_cli_cache_info_and_clear(fc, monkeypatch, capsys):
+    from paramost import cli
+    monkeypatch.setattr(cli, "_use_cache_dir", lambda path: None)
+    _fill(2)
+    import spherex.net
+    monkeypatch.setattr(spherex.net, "CACHE_ROOT", framecache.FRAME_DIR.parent)
+    assert cli.main(["cache-info"]) == 0
+    out = capsys.readouterr().out
+    assert "frames_proc/" in out and "2 aligned frames" in out
+    assert cli.main(["cache-clear", "frames"]) == 0
+    assert "2 aligned frames" in capsys.readouterr().out
+    assert framecache.info()["entries"] == 0

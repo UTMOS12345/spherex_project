@@ -61,6 +61,7 @@ paramost-cache:/data/cache ghcr.io/utmos12345/paramost:1.0.0`.
 
 Options: `paramost --port 8502`, `--no-browser`, `--offline` (only data already downloaded),
 `--cache-dir PATH`, `paramost cache-info` (where the cache is, its size, which targets),
+`paramost cache-clear frames` (delete the frame cache, keep the downloads),
 `paramost --version`. From a source checkout: `pip install -e ".[test]"` and
 `python -m paramost`.
 
@@ -227,7 +228,10 @@ The [tutorial notebook](notebooks/tutorial.ipynb) walks through every view.
 
 `--cache-dir PATH` or `SPHEREX_CACHE=PATH` chooses another folder. A target needs about 25-50 MB
 (0.4 MB per image). `SPHEREX_CACHE_MAX_GB`, `SPHEREX_CACHE_POLICY` (`evict` or `stop`) and
-`SPHEREX_CACHE_TTL_DAYS` cap the image cache.
+`SPHEREX_CACHE_TTL_DAYS` cap the image cache. Each image cleaned and aligned onto a view's grid
+is kept in `frames_proc/` (about 50 KB per image at 4', 0.3 MB at 10'), so toggling clip or
+changing the time step reuses it. It is capped at 2 GB, least recently used first
+(`SPHEREX_FRAME_CACHE_MAX_GB`); `SPHEREX_FRAME_CACHE=0` turns it off.
 
 To uninstall, run `pipx uninstall paramost` and delete the cache folder. With Docker, also run
 `docker volume rm paramost-cache`.

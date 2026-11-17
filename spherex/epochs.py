@@ -98,6 +98,7 @@ def stack_epoch(paths, grid_wcs, shape, bad_flags=BAD_FLAGS, keep_saturated_star
             layers.append(layer)
             used_idx.append(i_path)
         report(progress, CLEANING, i_path + 1, len(paths))
+    framecache.sweep()                                    # keep the frame cache under its cap
     return _combine_layers(layers, used_idx, shape, clip, return_count, return_stats)
 
 
@@ -286,6 +287,7 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
                 report(progress, CLEANING, done, n_arrived)
             groups.append((d, layers, used_idx, path_rows))
         aligned.append((e, rows, skipped, groups))
+    framecache.sweep()                                    # keep the frame cache under its cap
 
     epochs = []
     report(progress, STACKING, 0, len(aligned))

@@ -26,13 +26,21 @@ rename wins; readers see the whole file or none. Only a finished array is writte
 exception while cleaning or reprojecting stores nothing. A file that cannot be read counts as
 a miss and is recomputed.
 
-Setting (read at call time):
+Settings (read at call time):
 - SPHEREX_FRAME_CACHE=0 turns the cache off (no reads, no writes).
+- SPHEREX_FRAME_CACHE_MAX_GB (float, default 2; 0 = unlimited): size cap. After new entries
+  are written, the least recently used ones (oldest mtime; a hit renews it) are deleted until
+  the folder is under the cap.
+- SPHEREX_CACHE_TTL_DAYS (shared with the cutout cache): entries unused for that long go too.
+The cutout settings SPHEREX_CACHE_MAX_GB / SPHEREX_CACHE_POLICY apply to cutouts only: these
+files can always be recomputed, so this cache never refuses to grow, it evicts.
 """
 import hashlib
 import json
 import os
+import shutil
 import threading
+import time
 from pathlib import Path
 
 import numpy as np
@@ -41,14 +49,31 @@ from .net import CACHE_ROOT
 
 FRAME_CACHE_VERSION = 1          # raise when a code change alters any aligned frame
 FRAME_DIR = CACHE_ROOT / "frames_proc"
+DEFAULT_MAX_GB = 2.0
+SWEEP_EVERY = 64                 # new entries between size checks (and after every view)
+_GB = 1024 ** 3
 
 _lock = threading.Lock()
 _digests = {}                    # (path, inode, size, mtime_ns) -> sha256 of the file
+_writes = 0                      # entries written since the last sweep
 
 
 def enabled():
     """False when SPHEREX_FRAME_CACHE=0 (or 'false', 'no', 'off')."""
     return (os.environ.get("SPHEREX_FRAME_CACHE") or "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _env_float(name, default):
+    try:
+        v = float(os.environ.get(name) or default)
+    except ValueError:
+        return default
+    return v if v > 0 else 0.0
+
+
+def max_bytes():
+    """The size cap in bytes (SPHEREX_FRAME_CACHE_MAX_GB), or 0 for unlimited."""
+    return int(_env_float("SPHEREX_FRAME_CACHE_MAX_GB", DEFAULT_MAX_GB) * _GB)
 
 
 def file_digest(path):
@@ -139,6 +164,7 @@ def load(key, shape):
 
 def save(key, layer):
     """Store a finished frame (array, or None for 'never sees the range') atomically."""
+    global _writes
     path = entry_path(key)
     arr = np.empty(0) if layer is None else np.ascontiguousarray(layer, dtype=np.float64)
     part = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.part")
@@ -153,6 +179,11 @@ def save(key, layer):
         except OSError:
             pass
         return
+    with _lock:
+        _writes += 1
+        due = _writes >= SWEEP_EVERY
+    if due:
+        sweep()
 
 
 def cached_layer(source, grid_wcs, shape, compute, bad_flags, keep_saturated_stars, bloom_radius, wl_range):
@@ -169,3 +200,65 @@ def cached_layer(source, grid_wcs, shape, compute, bad_flags, keep_saturated_sta
     layer = compute()                 # an exception here stores nothing
     save(key, layer)
     return layer
+
+
+def _entries():
+    """[(mtime, size, path)] of every stored frame, oldest first."""
+    out = []
+    if not FRAME_DIR.is_dir():
+        return out
+    for p in FRAME_DIR.glob("*/*.npy"):
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        out.append((st.st_mtime, st.st_size, p))
+    out.sort(key=lambda e: e[0])
+    return out
+
+
+def sweep(force=False):
+    """Delete least recently used entries until under the cap, and expired ones (TTL).
+    Without force, does nothing unless entries were written since the last sweep.
+    -> (entries removed, bytes removed)."""
+    global _writes
+    with _lock:
+        if not force and _writes == 0:
+            return 0, 0
+        _writes = 0
+    limit = max_bytes()
+    ttl = _env_float("SPHEREX_CACHE_TTL_DAYS", 0.0)
+    if not limit and not ttl:
+        return 0, 0
+    cutoff = time.time() - ttl * 86400 if ttl else None
+    entries = _entries()
+    total = sum(e[1] for e in entries)
+    n = freed = 0
+    for mtime, size, p in entries:
+        expired = cutoff is not None and mtime < cutoff
+        if not expired and not (limit and total > limit):
+            continue
+        try:
+            p.unlink()
+        except OSError:
+            continue
+        total -= size
+        n += 1
+        freed += size
+    return n, freed
+
+
+def info():
+    """-> dict(entries, size_bytes, max_bytes, enabled, folder)."""
+    entries = _entries()
+    return {"entries": len(entries), "size_bytes": sum(e[1] for e in entries), "max_bytes": max_bytes(),
+            "enabled": enabled(), "folder": FRAME_DIR}
+
+
+def clear():
+    """Delete the whole frame cache (never the downloaded cutouts) -> (entries, bytes) removed."""
+    i = info()
+    shutil.rmtree(FRAME_DIR, ignore_errors=True)
+    with _lock:
+        _digests.clear()
+    return i["entries"], i["size_bytes"]

@@ -19,6 +19,7 @@ guide is [deploy/README.md](../deploy/README.md); this page is the overview.
   - `SPHEREX_CACHE=/srv/spherex-cache`: the server's own cache, outside the checkout.
   - `SPHEREX_CACHE_MAX_GB`, `SPHEREX_CACHE_POLICY`, `SPHEREX_CACHE_TTL_DAYS`: a bounded image
     cache (recommended: 25, `evict`, 0).
+  - `SPHEREX_FRAME_CACHE_MAX_GB`: cap of the frame cache of cleaned, aligned images (default 2).
   - `SPHEREX_DEMO_DIR`, `SPHEREX_OUT_DIR`: where the tools below write.
 - `deploy/deploy.sh`, installed as `/usr/local/bin/spherex-deploy`, is run by cron every 5
   minutes: it pulls the branch and restarts the service when the code or `requirements.txt`

@@ -98,6 +98,8 @@ are not affected.
 | `api.set_demo_mode(on)` | `True`: no downloads; frames not in `cache/` are skipped; every server call gets one try with a 20 s deadline. Also set by the environment variable `SPHEREX_DEMO=1`. |
 | `api.demo_mode()` | `True` when demo mode is on. |
 | `api.count_downloads(fn, *args, **kwargs)` | dict `missing`, `total`: how many images the api call `fn(*args, **kwargs)` would download (and use), without downloading or measuring anything. A new target is searched on IRSA first. For picture kinds `banddiff` / `rgb` count `epochs()` per detector. 0 in demo mode. |
+| `SPHEREX_FRAME_CACHE` | environment variable: `0` turns the frame cache off (every image is cleaned and aligned again for every view). The frame cache (`spherex.framecache`, `<cache>/frames_proc/`) keeps each image cleaned and aligned onto a view's grid; stacks are byte-identical with it on or off. |
+| `SPHEREX_FRAME_CACHE_MAX_GB` | environment variable: size cap of the frame cache (default 2; 0 = no cap). Least recently used entries are deleted first; `SPHEREX_CACHE_TTL_DAYS` applies too. `paramost cache-clear frames` empties it. |
 | `SPHEREX_DOWNLOAD_WORKERS` | environment variable: how many cutouts download at once (default 6; 1 = one after another). Results and file names are the same for any value. |
 | `api.defaults(text)` | dict `detector`, `band` (µm), `tol` (µm) for a target: the cached settings for the five test targets (`api.DEMO_DEFAULTS`), else `api.OTHER_DEFAULTS` (D2, 1.6, 0.02). |
 | `api.MAX_FOV` | 10.0: the largest field of view in arcmin. |
