@@ -5,6 +5,7 @@
     paramost --port 8502 --no-browser
     paramost --cache-dir D:\\spherex   use another cache folder (default: the user cache folder)
     paramost cache-info               where the cache is, its size, which targets are in it
+    paramost cache-clear frames       delete the frame cache only (downloads are kept)
     paramost --version
 
 Also `python -m paramost ...` (works from a source checkout without installing).
@@ -85,8 +86,15 @@ def cache_info():
                        ("gaia", "Gaia cones"), ("wise", "CatWISE cones")):
         size, n = _size(root / part) if (root / part).exists() else (0, 0)
         total += size
-        print(f"  {part + '/':10s} {human(size):>9s}  {n} {what}")
-    print(f"  total      {human(total):>9s}")
+        print(f"  {part + '/':12s} {human(size):>9s}  {n} {what}")
+    from spherex import framecache
+    fc = framecache.info()
+    total += fc["size_bytes"]
+    cap = f"cap {human(fc['max_bytes'])}" if fc["max_bytes"] else "no cap"
+    state = "" if fc["enabled"] else ", OFF (SPHEREX_FRAME_CACHE=0)"
+    print(f"  {'frames_proc/':12s} {human(fc['size_bytes']):>9s}  {fc['entries']} aligned frames "
+          f"({cap}{state}; clear with: paramost cache-clear frames)")
+    print(f"  {'total':12s} {human(total):>9s}")
     try:
         from paramost.index import load_index
         targets = load_index(root)
@@ -99,6 +107,15 @@ def cache_info():
     print(f"targets with downloaded images ({len(targets)}), newest first:")
     for t in targets:
         print(f"  {t['name'][:40]:40s} {human(t.get('size_bytes', 0)):>9s}  last viewed {t.get('last_viewed', '?')[:10]}")
+    return 0
+
+
+def cache_clear(what):
+    """Delete one recomputable part of the cache. 'frames': the frame cache (frames_proc/)."""
+    from spherex import framecache
+    n, size = framecache.clear()
+    print(f"frame cache cleared: {n} aligned frames, {human(size)} ({framecache.FRAME_DIR}). "
+          "Downloaded images and saved results were kept.")
     return 0
 
 
@@ -115,11 +132,17 @@ def main(argv=None):
     sub = p.add_subparsers(dest="command", metavar="command")
     info = sub.add_parser("cache-info", help="where the cache is, its size, which targets are in it")
     info.add_argument("--cache-dir", dest="sub_cache_dir", help="cache folder to look at")
+    clear = sub.add_parser("cache-clear", help="delete a recomputable part of the cache "
+                           "('frames': the cleaned, aligned frames; downloads are kept)")
+    clear.add_argument("what", choices=["frames"], help="frames: the frame cache (frames_proc/)")
+    clear.add_argument("--cache-dir", dest="sub_cache_dir", help="cache folder to clear in")
     a = p.parse_args(argv)
 
     _use_cache_dir(getattr(a, "sub_cache_dir", None) or a.cache_dir)
     if a.command == "cache-info":
         return cache_info()
+    if a.command == "cache-clear":
+        return cache_clear(a.what)
 
     env = dict(os.environ)
     env.setdefault("MPLBACKEND", "Agg")

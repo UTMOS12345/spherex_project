@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Frame cache:** every image, once cleaned and aligned onto a view's grid, is kept in
+  `<cache>/frames_proc/`, so a view that shares images with an earlier one (clip on/off,
+  another time step, another detector combination on the same grid) skips that work. Stacks are
+  byte-identical with it on or off. Capped at 2 GB, least recently used first
+  (`SPHEREX_FRAME_CACHE_MAX_GB`); `SPHEREX_FRAME_CACHE=0` turns it off; `paramost cache-info`
+  shows it and `paramost cache-clear frames` empties it.
+
 ## v1.0.0 (2026-11-16)
 
 The first release of the SPHEREx Flipbook, built for the NASA Space Apps Challenge 2026

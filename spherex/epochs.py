@@ -11,6 +11,7 @@ from reproject import reproject_interp
 
 from .clean import clean_frame, BAD_FLAGS
 from .download import get_cutouts
+from . import framecache
 from . import photometry as _phot
 from .progress import report, CLEANING, STACKING
 from .targets import at_time
@@ -19,6 +20,7 @@ from .text import plural
 CLIP_SIGMA = 4.0          # stacking: a frame's pixel this far from the other frames is dropped
 CLIP_MIN_FRAMES = 4       # ... only where at least this many frames cover the pixel
 MAX_PICTURES = 150        # every-frame mode (days=0) refuses to build more pictures than this
+BLOOM_RADIUS = 4          # clean_frame: how far from a saturated pixel a known star's flags are forgiven
 
 
 def assign_epochs(frames, gap_days=30, max_len_days=60):
@@ -96,13 +98,23 @@ def stack_epoch(paths, grid_wcs, shape, bad_flags=BAD_FLAGS, keep_saturated_star
             layers.append(layer)
             used_idx.append(i_path)
         report(progress, CLEANING, i_path + 1, len(paths))
+    framecache.sweep()                                    # keep the frame cache under its cap
     return _combine_layers(layers, used_idx, shape, clip, return_count, return_stats)
 
 
 def _aligned_layer(p, grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range):
     """One cutout file -> its cleaned, sky-levelled picture on the grid, or None when the frame
-    never sees wl_range. The per-frame half of stack_epoch."""
-    f = clean_frame(p, bad_flags, keep_saturated_stars)
+    never sees wl_range. The per-frame half of stack_epoch. Served from the frame cache
+    (spherex.framecache) when this frame was aligned onto this grid before with the same
+    settings; the array is then the same, bit for bit."""
+    return framecache.cached_layer(
+        p, grid_wcs, shape, lambda: _compute_layer(p, grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range),
+        bad_flags, keep_saturated_stars, BLOOM_RADIUS, wl_range)
+
+
+def _compute_layer(p, grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range):
+    """_aligned_layer without the cache: clean, level, fill, cut to wl_range, reproject."""
+    f = clean_frame(p, bad_flags, keep_saturated_stars, BLOOM_RADIUS)
     img = f["image"] - np.nanmedian(f["image"])           # remove what the ZODI model missed
     if keep_saturated_stars:
         # fill small holes (saturated star cores, masked neighbours) from the pixels around
@@ -275,6 +287,7 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
                 report(progress, CLEANING, done, n_arrived)
             groups.append((d, layers, used_idx, path_rows))
         aligned.append((e, rows, skipped, groups))
+    framecache.sweep()                                    # keep the frame cache under its cap
 
     epochs = []
     report(progress, STACKING, 0, len(aligned))
