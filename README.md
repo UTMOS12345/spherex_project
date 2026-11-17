@@ -173,8 +173,12 @@ The honest limits:
   its wavelength. Each data release gets its own marker. Warnings cover mixed releases (DR1 vs
   QR3 calibration), wavelength spread, saturation and neighbours. When an exposure is in
   several releases, DR is used before QR, and newer before older.
-- **Parallel downloads.** Six cutouts download at once (`SPHEREX_DOWNLOAD_WORKERS`). For 62
-  images that took **110 s instead of 799 s**, and the files were byte-identical.
+- **Parallel downloads that adapt to the archive.** Downloads start six at once
+  (`SPHEREX_DOWNLOAD_WORKERS`) and add one after every round of successes, up to 12
+  (`SPHEREX_DOWNLOAD_WORKERS_MAX`). When IRSA answers "busy" (429/502/503/504 or a timeout) the
+  number is halved and a Retry-After pause is honoured; the progress line then says "archive
+  busy". For 62 images six at once took **110 s instead of 799 s**, and the files were
+  byte-identical.
 - **PSF stripping.** IRSA's cutout service always includes the PSF layer, which the app never
   uses. It is dropped after download, which makes cutouts **93% smaller**
   (`tools/strip_psf.py` slims old ones).

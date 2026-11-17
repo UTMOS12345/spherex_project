@@ -71,7 +71,7 @@ def test_failures_come_back_in_place(fake_irsa, monkeypatch):
         if "frame2." in url:
             raise OSError("boom")
         return dest.write_bytes(b"") or dest
-    monkeypatch.setattr(download, "with_retries", lambda fn, *a, tries=6: broken(*a))
+    monkeypatch.setattr(download, "_download_adaptive", lambda url, dest, tries, limit: broken(url, dest))
     out = download.get_cutouts(_requests(4)[:4], workers=6)
     assert isinstance(out[2], OSError)
     assert [isinstance(p, OSError) for p in out] == [False, False, True, False]
