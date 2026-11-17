@@ -34,8 +34,8 @@ are unchanged, or explain why they change. If a change alters saved results, rai
 - The app talks to the library only through `spherex/api.py`, documented in
   [docs/API.md](docs/API.md). New behaviour goes in as optional arguments, so existing calls
   give the same results.
-- Don't commit downloaded data. `cache/` is ignored except the frame lists and catalogue cones
-  of the five challenge targets.
+- Don't commit downloaded data. `cache/` is regenerable and fully ignored; a fresh clone
+  downloads what it needs (or point `SPHEREX_CACHE` at a copy).
 
 ## Pull requests
 
