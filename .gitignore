@@ -15,14 +15,11 @@ env/
 !deploy/spherex.env.example
 .streamlit/secrets.toml
 
-# Data: FITS cutouts are GB-sized; keep them out of git and ship cache/ separately.
-# The small frame lists and Gaia/CatWISE cones stay tracked so demo mode works from a fresh clone.
+# Data: cache/ is downloaded and regenerable (GB of FITS cutouts, frame lists, catalogue cones).
+# Never tracked; ship it separately (see deploy/README.md).
 *.fits
 *.fits.gz
-cache/*
-!cache/frames/
-!cache/gaia/
-!cache/wise/
+cache/
 
 # Generated demo backups and explore products (override the directories with the env vars).
 demo/
