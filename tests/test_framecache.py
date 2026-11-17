@@ -150,3 +150,32 @@ def test_concurrent_writers_same_key(fc):
         t.join()
     assert framecache.load("ab" * 32, a.shape).tobytes() == a.tobytes()
     assert [p.name for p in framecache.FRAME_DIR.rglob("*") if p.is_file()] == [framecache.entry_path("ab" * 32).name]
+
+
+@pytest.mark.parametrize("off", ["0", "false", "off"])
+def test_env_switch_turns_it_off(fc, monkeypatch, off):
+    """SPHEREX_FRAME_CACHE=0: always compute, never read or write."""
+    monkeypatch.setenv("SPHEREX_FRAME_CACHE", off)
+    w, shape = make_grid(CENTRE, 4.0, 3.0)
+    calls = []
+
+    def compute():
+        calls.append(1)
+        return np.zeros(shape)
+    framecache.cached_layer(fc, w, shape, compute, BAD_FLAGS, True, 4, None)
+    framecache.cached_layer(fc, w, shape, compute, BAD_FLAGS, True, 4, None)
+    assert len(calls) == 2
+    assert not list(framecache.FRAME_DIR.rglob("*.npy"))
+
+
+def test_stacker_goes_through_the_cache(fc, monkeypatch):
+    """epochs._aligned_layer: computed once, then served from the cache, same bytes."""
+    from spherex import epochs
+    w, shape = make_grid(CENTRE, 4.0, 3.0)
+    calls = []
+    layer = np.random.default_rng(3).normal(size=shape)
+    monkeypatch.setattr(epochs, "_compute_layer", lambda *a: calls.append(a) or layer.copy())
+    a = epochs._aligned_layer(fc, w, shape, BAD_FLAGS, True, None)
+    b = epochs._aligned_layer(fc, w, shape, BAD_FLAGS, True, None)
+    c = epochs._aligned_layer(fc, w, shape, BAD_FLAGS, False, None)    # other setting: computed
+    assert len(calls) == 2 and a.tobytes() == b.tobytes() == layer.tobytes() and c is not None

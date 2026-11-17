@@ -25,6 +25,9 @@ threads or processes working on the same frame at once each write a whole file a
 rename wins; readers see the whole file or none. Only a finished array is written: an
 exception while cleaning or reprojecting stores nothing. A file that cannot be read counts as
 a miss and is recomputed.
+
+Setting (read at call time):
+- SPHEREX_FRAME_CACHE=0 turns the cache off (no reads, no writes).
 """
 import hashlib
 import json
@@ -41,6 +44,11 @@ FRAME_DIR = CACHE_ROOT / "frames_proc"
 
 _lock = threading.Lock()
 _digests = {}                    # (path, inode, size, mtime_ns) -> sha256 of the file
+
+
+def enabled():
+    """False when SPHEREX_FRAME_CACHE=0 (or 'false', 'no', 'off')."""
+    return (os.environ.get("SPHEREX_FRAME_CACHE") or "1").strip().lower() not in ("0", "false", "no", "off")
 
 
 def file_digest(path):
@@ -148,7 +156,9 @@ def save(key, layer):
 
 
 def cached_layer(source, grid_wcs, shape, compute, bad_flags, keep_saturated_stars, bloom_radius, wl_range):
-    """compute() -> aligned frame (array or None), through the cache."""
+    """compute() -> aligned frame (array or None), through the cache when it is on."""
+    if not enabled():
+        return compute()
     try:
         key = frame_key(source, grid_wcs, shape, bad_flags, keep_saturated_stars, bloom_radius, wl_range)
     except OSError:                   # cannot read the source to hash it: let compute() report it
