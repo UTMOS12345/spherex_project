@@ -445,7 +445,14 @@ def _player_pngs(images, markers, titles, norm, cmap, progress=None):
                 ring.set_offsets([[x, y]])
                 title_text.set_text(title)
             buf = io.BytesIO()
-            fig.savefig(buf, format="png", bbox_inches="tight", dpi=100)
+            if i_pic == 0:
+                fig.savefig(buf, format="png", bbox_inches="tight", dpi=100)
+            else:
+                # bbox_inches="tight" draws the whole figure once just to measure it, then again
+                # to render. After the first picture the layout is settled, so the same crop
+                # (tight box + savefig.pad_inches, what "tight" computes) is measured directly.
+                crop = fig.get_tightbbox(fig.canvas.get_renderer()).padded(plt.rcParams["savefig.pad_inches"])
+                fig.savefig(buf, format="png", bbox_inches=crop, dpi=100)
             out.append(buf.getvalue())
             report(progress, DRAWING, i_pic + 1, len(images))
     finally:
