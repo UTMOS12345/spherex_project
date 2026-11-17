@@ -12,7 +12,7 @@ from photutils.aperture import CircularAperture, CircularAnnulus, aperture_photo
 from .clean import clean_frame, saturated_mask, BAD_FLAGS
 from .download import get_cutouts
 from .progress import report, MEASURING
-from .targets import at_time
+from .targets import at_times
 
 
 def wavelength_at(path, x, y):
@@ -125,7 +125,7 @@ def light_curve(frames, target, band_um, tol_um=0.02, r_px=2.0, size_deg=0.1, pr
     lo = np.asarray(frames["em_min"], float) * 1e6 - tol_um
     hi = np.asarray(frames["em_max"], float) * 1e6 + tol_um
     sel = frames[(lo <= band_um) & (band_um <= hi)]             # only detectors that cover the band
-    positions = [at_time(target, Time(row["mjd"], format="mjd")) for row in sel]
+    positions = at_times(target, sel["mjd"])
     paths = get_cutouts([(row["access_url"], pos, size_deg) for row, pos in zip(sel, positions)], progress)
     rows = []
     report(progress, MEASURING, 0, len(sel))

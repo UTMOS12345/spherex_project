@@ -12,9 +12,10 @@ from reproject import reproject_interp
 from .clean import clean_frame, BAD_FLAGS
 from .download import get_cutouts
 from . import framecache
+from . import workers
 from . import photometry as _phot
 from .progress import report, CLEANING, STACKING
-from .targets import at_time
+from .targets import at_time, at_times
 from .text import plural
 
 CLIP_SIGMA = 4.0          # stacking: a frame's pixel this far from the other frames is dropped
@@ -90,14 +91,15 @@ def stack_epoch(paths, grid_wcs, shape, bad_flags=BAD_FLAGS, keep_saturated_star
     (of those, how many the sigma clipping dropped; 0 with clip=False), used (indices into
     `paths` of the frames that went into the stack).
     progress: optional callback (spherex.progress): "cleaning and aligning", once per frame."""
-    layers, used_idx = [], []
     report(progress, CLEANING, 0, len(paths))
-    for i_path, p in enumerate(paths):
-        layer = _aligned_layer(p, grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range)
-        if layer is not None:
-            layers.append(layer)
-            used_idx.append(i_path)
-        report(progress, CLEANING, i_path + 1, len(paths))
+    count = [0]
+
+    def tick(_):
+        count[0] += 1
+        report(progress, CLEANING, count[0], len(paths))
+    all_layers = _aligned_layers(list(paths), grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range, tick)
+    layers = [x for x in all_layers if x is not None]
+    used_idx = [i for i, x in enumerate(all_layers) if x is not None]
     framecache.sweep()                                    # keep the frame cache under its cap
     return _combine_layers(layers, used_idx, shape, clip, return_count, return_stats)
 
@@ -110,6 +112,74 @@ def _aligned_layer(p, grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range
     return framecache.cached_layer(
         p, grid_wcs, shape, lambda: _compute_layer(p, grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range),
         bad_flags, keep_saturated_stars, BLOOM_RADIUS, wl_range)
+
+
+def grid_params(grid_wcs, shape):
+    """A make_grid grid as plain numbers (for worker processes): rebuilding it with
+    grid_from_params gives the same WCS, bit for bit. A WCS is never pickled: that goes
+    through a FITS header and loses digits."""
+    w = grid_wcs.wcs
+    return {"ctype": [str(c) for c in w.ctype], "crval": [float(v) for v in w.crval],
+            "crpix": [float(v) for v in w.crpix], "cdelt": [float(v) for v in w.cdelt],
+            "shape": [int(n) for n in shape]}
+
+
+def grid_from_params(p):
+    """grid_params -> (WCS, shape), built the way make_grid builds it."""
+    w = WCS(naxis=2)
+    w.wcs.ctype = p["ctype"]
+    w.wcs.crval = p["crval"]
+    w.wcs.crpix = p["crpix"]
+    w.wcs.cdelt = p["cdelt"]
+    return w, tuple(p["shape"])
+
+
+def _layer_task(path, grid, bad_flags, keep_saturated_stars, wl_range, use_cache, frame_dir):
+    """One frame, in a worker process: rebuild the grid, then clean, align and store it in the
+    frame cache (atomic write) exactly as _aligned_layer does -> the aligned frame or None."""
+    from pathlib import Path
+    framecache.FRAME_DIR = Path(frame_dir)            # the caller's cache folder
+    grid_wcs, shape = grid_from_params(grid)
+    return framecache.cached_layer(
+        path, grid_wcs, shape, lambda: _compute_layer(path, grid_wcs, shape, list(bad_flags), keep_saturated_stars, wl_range),
+        list(bad_flags), keep_saturated_stars, BLOOM_RADIUS, wl_range, use_cache=use_cache)
+
+
+def _aligned_layers(paths, grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range, on_done=None):
+    """_aligned_layer for many files -> list in the same order. Frames in the frame cache are
+    read here; the rest are cleaned and aligned by worker processes (spherex.workers,
+    SPHEREX_WORKERS), which also store them. Same arrays for any number of workers.
+    on_done(i): called in this thread as frame i is ready (progress)."""
+    out = [None] * len(paths)
+    misses = []
+    for i, p in enumerate(paths):
+        found, layer = framecache.lookup(p, grid_wcs, shape, bad_flags, keep_saturated_stars, BLOOM_RADIUS, wl_range)
+        if found:
+            out[i] = layer
+            if on_done is not None:
+                on_done(i)
+        else:
+            misses.append(i)
+    if not misses:
+        return out
+    use_cache = framecache.enabled()
+    grid = grid_params(grid_wcs, shape)
+    rebuilt = grid_from_params(grid)
+    if framecache.grid_key(*rebuilt) != framecache.grid_key(grid_wcs, shape):   # not a make_grid grid
+        for i in misses:
+            out[i] = _aligned_layer(paths[i], grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range)
+            if on_done is not None:
+                on_done(i)
+        return out
+    tasks = [(str(paths[i]), grid, tuple(bad_flags), bool(keep_saturated_stars),
+              None if wl_range is None else (float(wl_range[0]), float(wl_range[1])),
+              use_cache, str(framecache.FRAME_DIR)) for i in misses]
+    layers = workers.run(_layer_task, tasks, on_done=None if on_done is None else (lambda k: on_done(misses[k])))
+    for i, layer in zip(misses, layers):
+        out[i] = layer
+    if use_cache:
+        framecache.note_writes(len(misses))
+    return out
 
 
 def _compute_layer(p, grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range):
@@ -253,22 +323,34 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
     # frame, 2. clean and align every frame that arrived, 3. combine each epoch. Same frames,
     # same order and same arithmetic as stacking epoch by epoch.
     plan, requests = [], []                               # plan: (epoch, rows, [(det, [(row, i)])])
+    mjds = sorted(set(float(m) for m in frames["mjd"][np.isin(frames["detector"], dets)]))
+    where = dict(zip(mjds, at_times(target, mjds)))       # the target on each frame's date
     for e in sorted(set(frames["epoch"])):
         rows = frames[(frames["epoch"] == e) & np.isin(frames["detector"], dets)]
         per_det = []
         for d in dets:
             items = []
             for row in rows[rows["detector"] == d]:
-                center = at_time(target, Time(row["mjd"], format="mjd"))   # same centre as prefetch
+                center = where[float(row["mjd"])]                # same centre as prefetch
                 items.append((row, len(requests)))
                 requests.append((row["access_url"], center, size_deg))
             per_det.append((d, items))
         plan.append((e, rows, per_det))
-    results = get_cutouts(requests, progress)             # path, or the OSError for that frame
+    # a cutout whose aligned frame is already in the frame cache is not opened to check it
+    trusted = lambda path: framecache.has(path, grid_wcs, shape, bad_flags, keep_saturated_stars,
+                                          BLOOM_RADIUS, wl_range)
+    results = get_cutouts(requests, progress, trusted=trusted)   # path, or the OSError for that frame
 
-    n_arrived = sum(not isinstance(r, OSError) for r in results)
-    done = 0
-    report(progress, CLEANING, 0, n_arrived)
+    order = [i for _, _, per_det in plan for _, items in per_det for _, i in items
+             if not isinstance(results[i], OSError)]     # the arrived frames, in plan order
+    report(progress, CLEANING, 0, len(order))
+    done = [0]
+
+    def tick(_):
+        done[0] += 1
+        report(progress, CLEANING, done[0], len(order))
+    layer_of = dict(zip(order, _aligned_layers([results[i] for i in order], grid_wcs, shape, bad_flags,
+                                               keep_saturated_stars, wl_range, tick)))
     aligned = []                                          # (epoch, rows, skipped, [(det, layers, used, path_rows)])
     for e, rows, per_det in plan:
         skipped, groups = {}, []
@@ -278,15 +360,14 @@ def make_epochs(frames, target, detector=None, size_deg=None, grid_arcmin=4.0, p
                 if isinstance(results[i], OSError):
                     skipped[str(results[i])] = skipped.get(str(results[i]), 0) + 1
                     continue
-                layer = _aligned_layer(results[i], grid_wcs, shape, bad_flags, keep_saturated_stars, wl_range)
+                layer = layer_of[i]
                 if layer is not None:
                     layers.append(layer)
                     used_idx.append(len(path_rows))       # index into this detector's arrived frames
                 path_rows.append(row)
-                done += 1
-                report(progress, CLEANING, done, n_arrived)
             groups.append((d, layers, used_idx, path_rows))
         aligned.append((e, rows, skipped, groups))
+    layer_of = None
     framecache.sweep()                                    # keep the frame cache under its cap
 
     epochs = []

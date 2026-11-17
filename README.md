@@ -173,8 +173,12 @@ The honest limits:
   its wavelength. Each data release gets its own marker. Warnings cover mixed releases (DR1 vs
   QR3 calibration), wavelength spread, saturation and neighbours. When an exposure is in
   several releases, DR is used before QR, and newer before older.
-- **Parallel downloads.** Six cutouts download at once (`SPHEREX_DOWNLOAD_WORKERS`). For 62
-  images that took **110 s instead of 799 s**, and the files were byte-identical.
+- **Parallel downloads that adapt to the archive.** Downloads start six at once
+  (`SPHEREX_DOWNLOAD_WORKERS`) and add one after every round of successes, up to 12
+  (`SPHEREX_DOWNLOAD_WORKERS_MAX`). When IRSA answers "busy" (429/502/503/504 or a timeout) the
+  number is halved and a Retry-After pause is honoured; the progress line then says "archive
+  busy". For 62 images six at once took **110 s instead of 799 s**, and the files were
+  byte-identical.
 - **PSF stripping.** IRSA's cutout service always includes the PSF layer, which the app never
   uses. It is dropped after download, which makes cutouts **93% smaller**
   (`tools/strip_psf.py` slims old ones).
@@ -231,7 +235,9 @@ The [tutorial notebook](notebooks/tutorial.ipynb) walks through every view.
 `SPHEREX_CACHE_TTL_DAYS` cap the image cache. Each image cleaned and aligned onto a view's grid
 is kept in `frames_proc/` (about 50 KB per image at 4', 0.3 MB at 10'), so toggling clip or
 changing the time step reuses it. It is capped at 2 GB, least recently used first
-(`SPHEREX_FRAME_CACHE_MAX_GB`); `SPHEREX_FRAME_CACHE=0` turns it off.
+(`SPHEREX_FRAME_CACHE_MAX_GB`); `SPHEREX_FRAME_CACHE=0` turns it off. Frames that are not in it are
+cleaned and aligned by several processes at once (`SPHEREX_WORKERS`, default up to 8; about
+130 MB each while they run, stopped after 10 idle minutes; 1 = one process).
 
 To uninstall, run `pipx uninstall paramost` and delete the cache folder. With Docker, also run
 `docker volume rm paramost-cache`.

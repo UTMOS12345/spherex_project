@@ -57,11 +57,31 @@ _RETRIES = {"retries": 0, "busy": 0}
 
 
 def note_failed_try(err, retrying):
-    """Called by net.with_retries for every failed server call: counts retries, and replies
-    that said "busy" (HTTP 503). Process-wide counters; Estimate shows the change per stage."""
+    """Called for every failed server call (net.with_retries, cutout downloads): counts retries,
+    and replies that said "overloaded" (HTTP 429, 502, 503, 504). Process-wide counters;
+    Estimate shows the change per stage."""
     with _RETRY_LOCK:
         _RETRIES["retries"] += bool(retrying)
-        _RETRIES["busy"] += "503" in str(err)
+        _RETRIES["busy"] += any(f"HTTP {c}" in str(err) for c in (429, 502, 503, 504))
+
+
+_DOWNLOAD_STATUS = [None]
+
+
+def set_download_status(fn):
+    """fn() -> short text about the downloads right now ("6 at once", "archive busy, slowing
+    down: 3 at once"); shown on the "downloading images" line. Set by spherex.download."""
+    _DOWNLOAD_STATUS[0] = fn
+
+
+def download_status():
+    fn = _DOWNLOAD_STATUS[0]
+    if fn is None:
+        return ""
+    try:
+        return fn() or ""
+    except Exception:
+        return ""
 
 
 def retry_counts():
@@ -123,6 +143,10 @@ class Estimate:
             r, b = retry_counts()
             retries, busy = r - self._r0[0], b - self._r0[1]
         parts = [stage, f"{done} / {total}"]
+        if stage == DOWNLOADING and 0 < total and done < total and (finished or retries or busy):
+            note = download_status()          # "6 at once" / "archive busy, slowing down: 3 at once"
+            if note:
+                parts.append(note)
         if seconds is not None and done < total:
             parts.append(time_left_text(seconds))
         if retries or busy:

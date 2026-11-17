@@ -13,26 +13,31 @@ Cache size (bounded cutout cache in CACHE_DIR, ``cache/cutouts`` only):
   downloads. All settings are read at call time; with all unset, behavior is
   unchanged (no eviction, no deletion).
 
-Parallel downloads: ``SPHEREX_DOWNLOAD_WORKERS`` (int, default 6) cutouts are fetched at
-once by get_cutouts and prefetch. Results, their order and the file names do not depend on
-it; 1 downloads one after another. Each file is written to a temporary name next to its
-final place and renamed, so the cache never holds a half-written file.
+Parallel downloads (spherex.throttle): get_cutouts and prefetch start with
+``SPHEREX_DOWNLOAD_WORKERS`` (int, default 6) cutouts at once and allow one more after every
+full round of successes, up to ``SPHEREX_DOWNLOAD_WORKERS_MAX`` (default 12). When the archive
+says it is busy (HTTP 429/502/503/504, a timeout, a dropped connection) the number is halved
+(down to 1) and a Retry-After header pauses new requests until then; the progress line shows
+the current number and "archive busy". SPHEREX_DOWNLOAD_WORKERS=1 downloads one after another.
+Results, their order and the file names do not depend on any of this. All downloads share one
+HTTP session (keep-alive). Each file is written to a temporary name next to its final place
+and renamed, so the cache never holds a half-written file.
 """
 import contextvars
 import os
+import tempfile
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from pathlib import Path
 
 from astropy.io import fits
-from astropy.time import Time
-from astropy.utils.data import download_file
 
 from . import net
-from .net import with_retries, CACHE_ROOT
-from .progress import report, DOWNLOADING
-from .targets import at_time
+from . import throttle
+from .net import CACHE_ROOT
+from .progress import report, DOWNLOADING, note_failed_try, set_download_status
+from .targets import at_times
 from .text import plural
 
 CACHE_DIR = CACHE_ROOT / "cutouts"
@@ -47,6 +52,8 @@ DOWNLOAD_DEG = 0.25
 # IRSA's cutout service cannot leave it out: it takes only center= and size=, cuts every image
 # layer and returns the PSF whole (checked 16 Nov 2026: ext=, hdu=, extension=, exclude= are
 # ignored, 4.37 MB each; gzip=true saves 9%). So it is downloaded, then stripped here.
+# Reading only the needed rows of the full-frame files with HTTP ranges was tested too and is
+# not used: see docs/byte-ranges.md (fsspec is slower and bigger; at most 100 ranges per request).
 DROP_LAYERS = ("PSF", "EPSF")
 
 _CACHE_LOCK = threading.RLock()
@@ -54,6 +61,27 @@ _IN_USE = set()          # paths currently in use; never evicted
 _DOWNLOAD_COUNT = 0      # new-download counter for sweep cadence
 _GB = 1024 ** 3
 DEFAULT_WORKERS = 6
+DEFAULT_MAX_WORKERS = 12
+BUSY_CODES = {429, 502, 503, 504}          # "overloaded": slow down (and retry)
+RETRY_CODES = {500} | BUSY_CODES           # retried; 404/400 and other errors are not
+RETRY_BASE_S = 5.0                         # waits between tries: 5, 10, 20, 40, 60 s
+CONNECT_TIMEOUT_S = 30
+
+
+class Busy(OSError):
+    """The archive is overloaded (HTTP 429/502/503/504, a timeout, a dropped connection)."""
+
+    def __init__(self, what, retry_after=None):
+        super().__init__(what)
+        self.retry_after = retry_after
+
+
+class HTTPStatus(OSError):
+    """Any other HTTP error answer: not retried unless its code is in RETRY_CODES."""
+
+    def __init__(self, code):
+        super().__init__(f"HTTP {code}")
+        self.code = code
 
 
 def download_workers():
@@ -62,6 +90,118 @@ def download_workers():
         return max(1, int(os.environ.get("SPHEREX_DOWNLOAD_WORKERS") or DEFAULT_WORKERS))
     except ValueError:
         return DEFAULT_WORKERS
+
+def download_workers_max():
+    """Most cutouts at once (SPHEREX_DOWNLOAD_WORKERS_MAX, default 12); never below
+    download_workers(); 1 when SPHEREX_DOWNLOAD_WORKERS=1 (one after another)."""
+    start = download_workers()
+    if start == 1:
+        return 1
+    try:
+        v = int(os.environ.get("SPHEREX_DOWNLOAD_WORKERS_MAX") or DEFAULT_MAX_WORKERS)
+    except ValueError:
+        v = DEFAULT_MAX_WORKERS
+    return max(start, v)
+
+
+_LIMIT = None                    # the process-wide AdaptiveLimit (what IRSA can take persists)
+_LIMIT_LOCK = threading.Lock()
+
+
+def limiter(workers=None):
+    """workers=None: the process-wide adaptive limit (re-made when the settings change);
+    a number: a fixed limit of that many for one call (tests, explicit requests)."""
+    global _LIMIT
+    if workers is not None:
+        return throttle.AdaptiveLimit(workers, workers)
+    start, top = download_workers(), download_workers_max()
+    with _LIMIT_LOCK:
+        if _LIMIT is None or (_LIMIT.maximum, getattr(_LIMIT, "_start", None)) != (top, start):
+            _LIMIT = throttle.AdaptiveLimit(start, top)
+            _LIMIT._start = start
+        return _LIMIT
+
+
+set_download_status(lambda: limiter().status_text())
+
+
+# ------------------------------------------------------------------ one HTTP session
+_SESSION = None
+_SESSION_LOCK = threading.Lock()
+
+
+def _http():
+    """One requests.Session for every download (keep-alive: no new TLS handshake per file)."""
+    global _SESSION
+    with _SESSION_LOCK:
+        if _SESSION is None:
+            import requests
+            from requests.adapters import HTTPAdapter
+            from . import __version__
+            s = requests.Session()
+            adapter = HTTPAdapter(pool_connections=4, pool_maxsize=64, max_retries=0)
+            s.mount("https://", adapter)
+            s.mount("http://", adapter)
+            s.headers["User-Agent"] = f"spherex-flipbook/{__version__} (python-requests)"
+            _SESSION = s
+        return _SESSION
+
+
+def download_file(url, cache=False, timeout=120, show_progress=False):
+    """GET url into a temporary file in the cache folder -> its path (the caller removes it).
+    Busy for 'overloaded' answers and network failures, HTTPStatus for other HTTP errors.
+    (Same call shape as astropy's download_file, which this replaces.)"""
+    import requests
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        r = _http().get(url, stream=True, timeout=(CONNECT_TIMEOUT_S, timeout))
+    except (requests.Timeout, requests.ConnectionError) as e:
+        raise Busy(f"{type(e).__name__}: {str(e)[:60]}") from e
+    with r:
+        if r.status_code in BUSY_CODES:
+            raise Busy(f"HTTP {r.status_code}", throttle.parse_retry_after(r.headers.get("Retry-After")))
+        if r.status_code >= 400:
+            raise HTTPStatus(r.status_code)
+        fd, tmp = tempfile.mkstemp(prefix=".dl-", suffix=".fits", dir=CACHE_DIR)
+        try:
+            with os.fdopen(fd, "wb") as f:
+                for block in r.iter_content(1 << 16):
+                    f.write(block)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            os.remove(tmp)
+            raise Busy(f"{type(e).__name__}: {str(e)[:60]}") from e
+        except BaseException:
+            os.remove(tmp)
+            raise
+    return tmp
+
+
+def _download_adaptive(url, dest, tries, limit):
+    """_download_checked with retries, one limiter slot per try (not held while waiting).
+    Busy answers slow everything down (limit.busy) and honour Retry-After."""
+    name = "download"
+    for attempt in range(tries):
+        retry_after = None
+        with limit.slot():
+            try:
+                result = _download_checked(url, dest)
+            except Busy as e:
+                limit.busy(e.retry_after)
+                retry_after, err = e.retry_after, str(e)
+            except HTTPStatus as e:
+                if e.code not in RETRY_CODES:
+                    raise                            # wrong request: retrying won't help
+                err = str(e)
+            except OSError as e:                     # e.g. not valid FITS: retry, no slow-down
+                err = f"{type(e).__name__}: {str(e)[:70]}"
+            else:
+                limit.success()
+                return result
+        note_failed_try(err, retrying=attempt < tries - 1)
+        if attempt == tries - 1:
+            raise OSError(f"{name} gave up after {plural(tries, 'try', 'tries')} ({err})")
+        time.sleep(max(min(RETRY_BASE_S * 2 ** attempt, 60), retry_after or 0))
+
 
 def _env_float(name, default=0.0):
     v = os.environ.get(name)
@@ -207,10 +347,11 @@ def find_cached(url, center, size_deg):
     return best[1] if best else None
 
 
-def get_cutout(url, center, size_deg=0.1, tries=6):
+def get_cutout(url, center, size_deg=0.1, tries=6, limit=None):
     """Frame URL + SkyCoord centre -> local path of a cutout at least size_deg big.
     Uses any cached file that is big enough; otherwise downloads max(size_deg, DOWNLOAD_DEG),
-    so later requests with a different field of view are served from the same file."""
+    so later requests with a different field of view are served from the same file.
+    limit: the AdaptiveLimit to download under (default: the process-wide one)."""
     path = find_cached(url, center, size_deg)
     if path is not None and is_valid_fits(path):
         try:
@@ -231,7 +372,8 @@ def get_cutout(url, center, size_deg=0.1, tries=6):
     with _CACHE_LOCK:
         _IN_USE.add(path)
     try:
-        result = with_retries(_download_checked, cutout_url(url, center, fetch), path, tries=tries)
+        result = _download_adaptive(cutout_url(url, center, fetch), path, tries,
+                                    limiter() if limit is None else limit)
     finally:
         with _CACHE_LOCK:
             _IN_USE.discard(path)
@@ -239,25 +381,36 @@ def get_cutout(url, center, size_deg=0.1, tries=6):
     return result
 
 
-def _get_or_error(url, center, size_deg):
+def _get_or_error(url, center, size_deg, limit=None):
     try:
-        return get_cutout(url, center, size_deg)
+        return get_cutout(url, center, size_deg, limit=limit)
     except OSError as e:
         return e
 
 
-def _fetch_all(jobs, workers, on_done):
-    """Run _get_or_error for every job [(key, (url, center, size_deg))], up to `workers` at
-    once. on_done(key, result) runs on the CALLING thread as each one finishes, so progress
-    callbacks (Streamlit) never run on a worker thread."""
-    if workers <= 1 or len(jobs) <= 1:
+TICK_S = 1.0             # while nothing finishes, on_tick runs this often (progress line)
+
+
+def _fetch_all(jobs, workers, on_done, on_tick=None):
+    """Run _get_or_error for every job [(key, (url, center, size_deg))]. workers=None: under
+    the process-wide adaptive limit (spherex.throttle); a number: at most that many at once.
+    on_done(key, result) runs on the CALLING thread as each one finishes, and on_tick() every
+    TICK_S while none does (a Retry-After pause), so progress callbacks (Streamlit) never run
+    on a worker thread."""
+    limit = limiter(workers)
+    if limit.maximum <= 1 or len(jobs) <= 1:
         for key, args in jobs:
-            on_done(key, _get_or_error(*args))
+            on_done(key, _get_or_error(*args, limit=limit))
         return
-    with ThreadPoolExecutor(max_workers=min(workers, len(jobs)), thread_name_prefix="spherex-dl") as pool:
-        futures = {pool.submit(_get_or_error, *args): key for key, args in jobs}
-        for fut in as_completed(futures):
-            on_done(futures[fut], fut.result())
+    with ThreadPoolExecutor(max_workers=min(limit.maximum, len(jobs)), thread_name_prefix="spherex-dl") as pool:
+        futures = {pool.submit(_get_or_error, *args, limit=limit): key for key, args in jobs}
+        pending = set(futures)
+        while pending:
+            finished, pending = wait(pending, timeout=TICK_S, return_when=FIRST_COMPLETED)
+            for fut in finished:
+                on_done(futures[fut], fut.result())
+            if not finished and on_tick is not None:
+                on_tick()
 
 
 _COUNTING = contextvars.ContextVar("spherex_counting_downloads", default=False)
@@ -313,19 +466,33 @@ def note_missing(n):
         t.count += n
 
 
-def get_cutouts(requests, progress=None, workers=None):
+def _touch(path):
+    try:
+        os.utime(path)                 # most recently used: the cutout cache evicts it last
+    except OSError:
+        pass
+
+
+def get_cutouts(requests, progress=None, workers=None, trusted=None):
     """Many cutouts: [(url, center, size_deg), ...] -> list in the same order with, per request,
     the local path, or the OSError that get_cutout raised for it (the caller decides whether to
     skip). Cached files are looked up first; the rest are downloaded `workers` at a time
     (default download_workers()); a request repeated in the list is downloaded once.
+    trusted: optional callable(path) -> bool. A cached file it returns True for is used without
+    opening it to check it (is_valid_fits); the caller vouches for its content (the stacker:
+    the frame cache already holds this file's result, keyed by a hash of its bytes).
     progress(stage, done, total) gets "downloading images" before the first and after each one
     (cached files count too)."""
     total = len(requests)
     out = [None] * total
     done = 0
     local, missing = [], {}                        # missing: cache file name -> request indices
+    found = {}                                     # request index -> cached path
     for i, (url, center, size_deg) in enumerate(requests):
-        if net.DEMO_MODE or find_cached(url, center, size_deg) is not None:
+        path = find_cached(url, center, size_deg) if (trusted is not None or not net.DEMO_MODE) else None
+        if path is not None:
+            found[i] = path
+        if net.DEMO_MODE or path is not None:
             local.append(i)
         else:
             missing.setdefault(cache_path(url, center, max(size_deg, DOWNLOAD_DEG)).name, []).append(i)
@@ -333,6 +500,14 @@ def get_cutouts(requests, progress=None, workers=None):
         raise DownloadCount(len(missing), total)
     report(progress, DOWNLOADING, 0, total)
     for i in local:                                # no network: answer at once
+        path = found.get(i)
+        if path is not None and trusted is not None:
+            _touch(path)                           # before hashing: the hash is remembered per mtime
+            if trusted(path):
+                out[i] = path
+                done += 1
+                report(progress, DOWNLOADING, done, total)
+                continue
         out[i] = _get_or_error(*requests[i])
         done += 1
         report(progress, DOWNLOADING, done, total)
@@ -344,22 +519,21 @@ def get_cutouts(requests, progress=None, workers=None):
             done += 1
             report(progress, DOWNLOADING, done, total)
     jobs = [(tuple(ix), requests[ix[0]]) for ix in missing.values()]
-    _fetch_all(jobs, download_workers() if workers is None else workers, finished)
+    _fetch_all(jobs, workers, finished, on_tick=lambda: report(progress, DOWNLOADING, done, total))
     note_missing(sum(isinstance(r, OSError) for r in out))
     return out
 
 
 def prefetch(frames, target, size_deg=0.1, limit=None, progress=None, workers=None):
     """Download cutouts for many frames, centred on the target's position on each date,
-    `workers` at a time (default download_workers()).
+    `workers` at a time (default: the adaptive limit, see the module docstring).
     Safe to stop and re-run: cached files are skipped. Returns (cached, downloaded, failed).
     progress: optional callback, see spherex.progress ("downloading images" per frame)."""
     hit = new = fail = n = 0
     rows = frames if limit is None else frames[:limit]
     report(progress, DOWNLOADING, 0, len(rows))
     jobs = []
-    for i, row in enumerate(rows):
-        center = at_time(target, Time(row["mjd"], format="mjd"))
+    for i, (row, center) in enumerate(zip(rows, at_times(target, rows["mjd"]))):
         cached = find_cached(row["access_url"], center, size_deg) is not None
         jobs.append(((i, cached), (row["access_url"], center, size_deg)))
 
@@ -377,7 +551,7 @@ def prefetch(frames, target, size_deg=0.1, limit=None, progress=None, workers=No
             _enforce_cache_limit(keep=(result,))
             print(f"[{n}/{len(rows)}] {'cached' if cached else 'downloaded'}  {row['date'][:10]} {row['detector']}")
         report(progress, DOWNLOADING, n, len(rows))
-    _fetch_all(jobs, download_workers() if workers is None else workers, finished)
+    _fetch_all(jobs, workers, finished, on_tick=lambda: report(progress, DOWNLOADING, n, len(rows)))
     print(f"\n{hit} cached, {new} downloaded, {fail} failed")
     return hit, new, fail
 

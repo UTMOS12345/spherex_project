@@ -1,5 +1,25 @@
 """Progress helpers: safe reporting, the running-count adapter and the time estimate."""
+import pytest
+
 from spherex import progress as P
+
+
+@pytest.fixture(autouse=True)
+def no_download_status(monkeypatch):
+    """The exact-text tests below do not depend on the live download limiter."""
+    monkeypatch.setattr(P, "_DOWNLOAD_STATUS", [None])
+
+
+def test_download_line_shows_concurrency_and_busy(monkeypatch):
+    clock = Clock()
+    est = P.Estimate(clock)
+    monkeypatch.setattr(P, "_DOWNLOAD_STATUS", [lambda: "archive busy, slowing down: 3 at once"])
+    est.update(P.DOWNLOADING, 0, 61)
+    assert "archive busy, slowing down: 3 at once" not in est.update(P.DOWNLOADING, 0, 61)["text"]  # not yet
+    clock.t = 2.0
+    assert est.update(P.DOWNLOADING, 1, 61)["text"] == "downloading images · 1 / 61 · archive busy, slowing down: 3 at once"
+    assert "at once" not in est.update(P.CLEANING, 1, 61)["text"]          # downloads only
+
 
 
 class Clock:

@@ -1,13 +1,12 @@
 """Lesson 10 - spectrum: brightness of one target at every wavelength, during one visit."""
 import numpy as np
 from astropy.table import Table, vstack
-from astropy.time import Time
 
 from .download import get_cutouts
 from .epochs import assign_epochs
 from .photometry import measure_frame, release_name
 from .progress import report, MEASURING
-from .targets import at_time
+from .targets import at_times
 
 # SPHEREx's six detectors; each is split into 17 channels -> 6 x 17 = 102 channels.
 BANDS_UM = {1: (0.75, 1.09), 2: (1.10, 1.62), 3: (1.63, 2.41),
@@ -26,7 +25,7 @@ MEASURE_DEG = 0.1         # cutout size the measurements ask for (served from an
 
 def spectrum_requests(frames, target, size_deg=MEASURE_DEG):
     """The get_cutouts requests spectrum() makes for these frames, in the same order."""
-    return [(row["access_url"], at_time(target, Time(row["mjd"], format="mjd")), size_deg) for row in frames]
+    return [(row["access_url"], pos, size_deg) for row, pos in zip(frames, at_times(target, frames["mjd"]))]
 
 
 def spectrum(frames_of_epoch, target, r_px=2.0, size_deg=MEASURE_DEG, progress=None, paths=None):

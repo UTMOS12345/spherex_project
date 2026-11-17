@@ -98,9 +98,11 @@ are not affected.
 | `api.set_demo_mode(on)` | `True`: no downloads; frames not in `cache/` are skipped; every server call gets one try with a 20 s deadline. Also set by the environment variable `SPHEREX_DEMO=1`. |
 | `api.demo_mode()` | `True` when demo mode is on. |
 | `api.count_downloads(fn, *args, **kwargs)` | dict `missing`, `total`: how many images the api call `fn(*args, **kwargs)` would download (and use), without downloading or measuring anything. A new target is searched on IRSA first. For picture kinds `banddiff` / `rgb` count `epochs()` per detector. 0 in demo mode. |
+| `SPHEREX_WORKERS` | environment variable: how many processes clean and align frames when a view has to be built (default min(CPUs, 8); 1 = all in one process). Results are the same for any value. The processes start with the `spawn` method on every platform, are reused, and stop after 10 minutes without work; about 130 MB each. If they cannot start, the work is done in one process (logged once). |
 | `SPHEREX_FRAME_CACHE` | environment variable: `0` turns the frame cache off (every image is cleaned and aligned again for every view). The frame cache (`spherex.framecache`, `<cache>/frames_proc/`) keeps each image cleaned and aligned onto a view's grid; stacks are byte-identical with it on or off. |
 | `SPHEREX_FRAME_CACHE_MAX_GB` | environment variable: size cap of the frame cache (default 2; 0 = no cap). Least recently used entries are deleted first; `SPHEREX_CACHE_TTL_DAYS` applies too. `paramost cache-clear frames` empties it. |
-| `SPHEREX_DOWNLOAD_WORKERS` | environment variable: how many cutouts download at once (default 6; 1 = one after another). Results and file names are the same for any value. |
+| `SPHEREX_DOWNLOAD_WORKERS` | environment variable: how many cutouts download at once to begin with (default 6; 1 = one after another, always). One more is allowed after every full round of successes, up to `SPHEREX_DOWNLOAD_WORKERS_MAX`; an archive "busy" answer (HTTP 429/502/503/504, a timeout, a dropped connection) halves it (down to 1) and Retry-After pauses new requests (spherex.throttle). The progress line shows the current number and "archive busy". Results and file names are the same for any value. |
+| `SPHEREX_DOWNLOAD_WORKERS_MAX` | environment variable: the most cutouts at once (default 12). |
 | `api.defaults(text)` | dict `detector`, `band` (µm), `tol` (µm) for a target: the cached settings for the five test targets (`api.DEMO_DEFAULTS`), else `api.OTHER_DEFAULTS` (D2, 1.6, 0.02). |
 | `api.MAX_FOV` | 10.0: the largest field of view in arcmin. |
 | `api.TIME_STEPS` | `{"per visit": 60, "monthly": 30, "weekly": 7, "every frame": 0}`: labels and `days` values for a time-step picker. |
@@ -397,7 +399,7 @@ Catch both: `except ValueError as e: st.warning(str(e))`, then `except Exception
 | Overlay (catalogues cached) | 0.2-0.3 s |
 | Light curve | 3-6 s |
 | Spectrum, latest visit / every visit | 5-8 s / 9-23 s |
-| New target, or images not in `cache/` (demo mode off) | minutes (downloads from IRSA, `SPHEREX_DOWNLOAD_WORKERS` at a time) |
+| New target, or images not in `cache/` (demo mode off) | minutes (downloads from IRSA, 6-12 at a time, fewer when the archive is busy) |
 
 `clip=False` builds a separate set of stacks (same time again the first time).
 

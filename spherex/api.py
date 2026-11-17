@@ -44,6 +44,7 @@ from .text import plural
 from .wise import wise_overlay
 from . import net
 from . import results
+from . import workers
 from . import cachefiles
 from .net import set_demo_mode            # api.set_demo_mode(True): cached data only, no hangs
 
@@ -380,25 +381,12 @@ def player_html(text, detector="D2", fov=4.0, mode="normal", fps=3, wl=None, day
     progress: optional callback (spherex.progress), as for flipbook; "drawing" counts pictures."""
     import base64
     import html as _html
-    import io
     import json
     target, eps, titles, norm, cmap = _video_frames(text, detector, fov, mode, wl, days, clip, pictures,
                                                     progress)
-    pngs = []
-    fig, ax = plt.subplots(figsize=(6, 6))
-    report(progress, DRAWING, 0, len(eps))
-    for i_pic, (e, title) in enumerate(zip(eps, titles)):
-        ax.clear()
-        ax.imshow(e["image"], origin="lower", cmap=cmap, norm=norm)
-        x, y = _marker(target, e)
-        ax.scatter([x], [y], s=400, facecolors="none", edgecolors="lime", lw=1.2)
-        ax.set_xticks([]); ax.set_yticks([])
-        ax.set_title(title, fontsize=10)
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", bbox_inches="tight", dpi=100)
-        pngs.append("data:image/png;base64," + base64.b64encode(buf.getvalue()).decode())
-        report(progress, DRAWING, i_pic + 1, len(eps))
-    plt.close(fig)
+    pngs = ["data:image/png;base64," + base64.b64encode(png).decode()
+            for png in _player_pngs([e["image"] for e in eps], [_marker(target, e) for e in eps], titles,
+                                    norm, cmap, progress)]
     labels = [_html.escape((e.get("label") or e.get("date", "")) + (f"  ({e['few']})" if e.get("few") else ""))
               for e in eps]
     holds = hold_counts([e["mjd"] for e in eps], max_hold)
@@ -434,6 +422,67 @@ document.getElementById("next").onclick = () => {{ stop(); show(i + 1); }};
 s.oninput = () => {{ stop(); show(+s.value); }};
 show(0); if (F.length > 1) start(); else play.disabled = true;
 </script></body></html>"""
+
+
+PARALLEL_DRAW_MIN = 16    # pictures from which the player is drawn by the worker processes
+DRAW_CHUNK = 8            # pictures per worker task (each task sets up one figure)
+
+
+def _player_pngs(images, markers, titles, norm, cmap, progress=None):
+    """The player's pictures -> PNG bytes, one per image (same shape, one norm and colormap).
+    Many pictures (every-frame videos) are drawn in chunks by the worker processes when they
+    are already running (spherex.workers; never started just for drawing): each chunk is drawn
+    exactly as below, so the pixels are the same."""
+    n = len(images)
+    if n >= PARALLEL_DRAW_MIN and workers.running() and workers.n_workers() > 1:
+        k = max(2, min(workers.n_workers(), -(-n // DRAW_CHUNK)))
+        bounds = [round(i * n / k) for i in range(k + 1)]
+        chunks = [(images[a:b], markers[a:b], titles[a:b], norm, cmap) for a, b in zip(bounds, bounds[1:])]
+        report(progress, DRAWING, 0, n)
+        drawn = [0]
+
+        def chunk_done(i):
+            drawn[0] += bounds[i + 1] - bounds[i]
+            report(progress, DRAWING, drawn[0], n)
+        parts = workers.run(_draw_pictures, chunks, on_done=chunk_done, min_tasks=2, start=False)
+        return [png for part in parts for png in part]
+    return _draw_pictures(images, markers, titles, norm, cmap, progress)
+
+
+def _draw_pictures(images, markers, titles, norm, cmap, progress=None):
+    """_player_pngs in one process. One figure for every picture: the image, ring and title
+    are made once and then only get new data, which draws the same pixels as building them
+    again for each picture."""
+    import io
+    out = []
+    fig, ax = plt.subplots(figsize=(6, 6))
+    report(progress, DRAWING, 0, len(images))
+    im = ring = title_text = None
+    try:
+        for i_pic, (img, (x, y), title) in enumerate(zip(images, markers, titles)):
+            if im is None:
+                im = ax.imshow(img, origin="lower", cmap=cmap, norm=norm)
+                ring = ax.scatter([x], [y], s=400, facecolors="none", edgecolors="lime", lw=1.2)
+                ax.set_xticks([]); ax.set_yticks([])
+                title_text = ax.set_title(title, fontsize=10)
+            else:
+                im.set_data(img)
+                ring.set_offsets([[x, y]])
+                title_text.set_text(title)
+            buf = io.BytesIO()
+            if i_pic == 0:
+                fig.savefig(buf, format="png", bbox_inches="tight", dpi=100)
+            else:
+                # bbox_inches="tight" draws the whole figure once just to measure it, then again
+                # to render. After the first picture the layout is settled, so the same crop
+                # (tight box + savefig.pad_inches, what "tight" computes) is measured directly.
+                crop = fig.get_tightbbox(fig.canvas.get_renderer()).padded(plt.rcParams["savefig.pad_inches"])
+                fig.savefig(buf, format="png", bbox_inches=crop, dpi=100)
+            out.append(buf.getvalue())
+            report(progress, DRAWING, i_pic + 1, len(images))
+    finally:
+        plt.close(fig)
+    return out
 
 
 # ------------------------------------------------------------------ 3. single pictures

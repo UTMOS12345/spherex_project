@@ -257,3 +257,21 @@ def test_cli_cache_info_and_clear(fc, monkeypatch, capsys):
     assert cli.main(["cache-clear", "frames"]) == 0
     assert "2 aligned frames" in capsys.readouterr().out
     assert framecache.info()["entries"] == 0
+
+
+def test_at_times_matches_at_time_bit_for_bit():
+    """targets.at_times (one call for many dates) == at_time per date, for movers and fixed stars."""
+    import astropy.units as u
+    from astropy.coordinates import SkyCoord
+    from astropy.time import Time
+    from spherex.targets import at_time, at_times
+    mover = SkyCoord(269.45 * u.deg, 4.69 * u.deg, obstime=Time(2000.0, format="jyear"),
+                     pm_ra_cosdec=-800 * u.mas / u.yr, pm_dec=10000 * u.mas / u.yr)
+    mjds = np.linspace(60700.123, 61100.987, 37)
+    for target in (mover, CENTRE):
+        many = at_times(target, mjds)
+        assert len(many) == len(mjds)
+        for m, c in zip(mjds, many):
+            one = at_time(target, Time(m, format="mjd"))
+            assert c.ra.deg.tobytes() == one.ra.deg.tobytes() and c.dec.deg.tobytes() == one.dec.deg.tobytes()
+    assert at_times(mover, []) == []

@@ -97,6 +97,19 @@ def at_time(coord, t):
     return SkyCoord(c.ra, c.dec)
 
 
+def at_times(coord, mjds):
+    """Positions on many dates (MJD) -> list of SkyCoord, one per date: the same values, bit for
+    bit, as at_time(coord, Time(mjd, format="mjd")) for each date, but computed in one call
+    (one call per frame costs ~3 ms with proper motion; a whole frame list then takes seconds)."""
+    mjds = np.asarray(mjds, float)
+    if len(mjds) == 0:
+        return []
+    c = at_time(coord, Time(mjds, format="mjd"))
+    if c.isscalar:                       # no proper motion: one position for every date
+        return [c] * len(mjds)
+    return [SkyCoord(ra, dec) for ra, dec in zip(c.ra, c.dec)]
+
+
 def years_since_j2000(t):
     """astropy Time -> years since J2000 (Quantity)."""
     return (t - J2000).to(u.yr)
