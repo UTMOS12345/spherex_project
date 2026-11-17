@@ -52,6 +52,8 @@ DOWNLOAD_DEG = 0.25
 # IRSA's cutout service cannot leave it out: it takes only center= and size=, cuts every image
 # layer and returns the PSF whole (checked 16 Nov 2026: ext=, hdu=, extension=, exclude= are
 # ignored, 4.37 MB each; gzip=true saves 9%). So it is downloaded, then stripped here.
+# Reading only the needed rows of the full-frame files with HTTP ranges was tested too and is
+# not used: see docs/byte-ranges.md (fsspec is slower and bigger; at most 100 ranges per request).
 DROP_LAYERS = ("PSF", "EPSF")
 
 _CACHE_LOCK = threading.RLock()
