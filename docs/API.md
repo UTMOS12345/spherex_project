@@ -409,7 +409,9 @@ a catalogue source lies within 3″ (in crowded fields that can be chance: `chan
    is), or the core of a saturated star that moved; its `pm_arcsec_yr` comes from the shift of the
    source's flux centroid between the two stacks (a blended dipole's lobes are one PSF apart whatever
    the motion, so their separation is no measure of it); at most 15″/yr. `variable`: an unpaired
-   residual at a place where another pair also has one. `single`: any other.
+   residual at a place where another pair also has one. `single`: any other. With three visits a change
+   in the middle visit (a flare, a one-frame defect) looks exactly like a variable, and with
+   `pairs="all"` or `minus_mean` the images share visits, so `seen_in` is no independent confirmation.
 4. **Catalogues**, each at the date of the visit the position refers to: Gaia DR3 and CatWISE2020
    (moved with their proper motions; IRSA, then ESA for Gaia) and SkyBoT (asteroids, at the first and
    last frame of the visit). Labels: `known star`, `known infrared source`, `known asteroid`,

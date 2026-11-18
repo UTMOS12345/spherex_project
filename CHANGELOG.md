@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Blind search (library and CLI, not in the app):** `api.find_movers(text, fov, detector)` and
+  `paramost search "<target>" --fov 10 --detector D2` list residuals between visits that survive
+  artefact cuts (coverage, edges, saturated-star wings, small changes), classified as mover /
+  variable / single and checked against Gaia DR3, CatWISE2020 and SkyBoT. Candidates are not
+  detections. On the Barnard's Star field it finds Barnard's Star first in every detector, at
+  9.3-10.6"/yr (catalogue 10.39); see docs/search-validation.md for what it does not show.
 - **Sky viewer works again during the CDS outage:** since about 2026-11-09 the CDS survey server
   (alasky) is down, which left the Aladin panel grey with no message. The panel now loads WISE,
   2MASS and DSS colour images from ESA, falls back to IRSA when no tile arrives within 10 s, and
