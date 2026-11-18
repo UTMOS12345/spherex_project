@@ -154,3 +154,232 @@ def find_residuals(epochs, nsigma=DETECT_SIGMA, method="pairs", pairs="consecuti
     if not rows:
         return Table(names=COLUMNS, dtype=[DTYPES[c] for c in COLUMNS])
     return Table(rows=[[r[c] for c in COLUMNS] for r in rows], names=COLUMNS)
+
+
+# ------------------------------------------------------------------ 2. artefact cuts
+MIN_FRAMES = 4          # a residual needs this many frames under it in BOTH visits (= CLIP_MIN_FRAMES)
+EDGE_PX = 5             # ... and must lie this far inside the area both visits cover well
+SAT_FLAGS = ("MP_OVERFLOW", "MP_BLOOM")   # a pixel with either is part of a saturated core
+SAT_MIN_FRAMES = 2      # a grid pixel is saturated when this many frames of the visit say so
+SAT_MIN_AREA_PX = 3     # smaller saturated patches are single hits, not stars
+SAT_RING_FACTOR = 2.5   # around a saturated core of radius r: residuals out to 2.5 r + SAT_PAD_PX
+SAT_PAD_PX = 4          #   are its wings and rings (R Draconis); not tuned on R Draconis (no local data)
+SAT_MOVE_PX = 0.5       # a saturated star whose centroid moved more than this between visits moved:
+                        #   static saturated stars in the Barnard's Star field move 0.01-0.13 px
+REPEAT_PX = 2.0         # residuals of different images within this distance are "the same place"
+MIN_CHANGE = 0.3        # a residual smaller than this fraction of the star under it is that star seen
+                        #   slightly differently (point-spread function, a few % calibration between
+                        #   releases): 5-25% for most residuals of the Barnard's Star field, 57-93% for
+                        #   the lobes of Barnard's Star itself. Real changes smaller than 30% are lost.
+
+CUTS = ("low coverage", "edge", "saturated star wings", "small change")
+
+
+def visit_paths(frames, target, epochs, detector_list, size_deg, gap_days=30, max_len_days=60):
+    """The cutout files each stacked visit was made from -> list (one per epoch) of paths,
+    rebuilt the way make_epochs grouped and requested them (assign_epochs, the target's position
+    on each frame's date). Frames whose file is not in the cache are left out."""
+    from astropy.time import Time
+    from .download import find_cached
+    from .epochs import assign_epochs
+    from .targets import at_time
+    f = assign_epochs(frames.copy(), gap_days, max_len_days)
+    out = []
+    for ep in epochs:
+        dets = str(ep.get("detectors_used") or "+".join(detector_list)).split("+")
+        rows = f[(f["epoch"] == ep["epoch"]) & np.isin(f["detector"], dets)]
+        paths = [find_cached(r["access_url"], at_time(target, Time(float(r["mjd"]), format="mjd")), size_deg)
+                 for r in rows]
+        out.append([p for p in paths if p is not None])
+    return out
+
+
+def saturation_map(paths, grid_wcs, shape, min_frames=SAT_MIN_FRAMES):
+    """Cutout files of one visit -> bool map on the grid: True where at least min_frames frames
+    flag the pixel OVERFLOW or BLOOM (a saturated star core)."""
+    from astropy.io import fits
+    from astropy.wcs import WCS
+    from reproject import reproject_interp
+    from .clean import flag_bits
+    count = np.zeros(shape, int)
+    for p in paths:
+        with fits.open(p) as h:
+            flags = h["FLAGS"].data.astype(np.int64)
+            bits = flag_bits(h["FLAGS"].header)
+            wcs = WCS(h["IMAGE"].header)
+        sat = np.zeros(flags.shape, bool)
+        for name in SAT_FLAGS:
+            if name in bits:
+                sat |= (flags & (1 << bits[name])) != 0
+        if sat.any():
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                on_grid = reproject_interp((sat.astype(float), wcs), grid_wcs, shape_out=shape,
+                                           return_footprint=False)
+            count += np.nan_to_num(on_grid) > 0.25
+    return count >= min_frames
+
+
+def flux_centroid(img, x, y, r, iterations=2):
+    """Flux-weighted centroid (x, y) of the positive pixels within r of (x, y), re-centred
+    `iterations` times. NaN when there is no positive flux there."""
+    yy, xx = np.mgrid[:img.shape[0], :img.shape[1]]
+    for _ in range(iterations):
+        w = ((xx - x) ** 2 + (yy - y) ** 2 <= r * r) & np.isfinite(img)
+        v = np.where(w, np.clip(np.nan_to_num(img), 0, None), 0.0)
+        total = v.sum()
+        if total <= 0:
+            return np.nan, np.nan
+        x, y = float((v * xx).sum() / total), float((v * yy).sum() / total)
+    return x, y
+
+
+def saturated_stars(sat_a, sat_b, img_a, img_b):
+    """Saturated cores in either visit of a pair -> list of dicts: x, y (centre), r_core (radius of
+    a circle of the same area), r_ring (out to where its wings and rings reach), shift_px (how far
+    its flux centroid moved from visit a to b), moving (shift_px > SAT_MOVE_PX).
+    The centroid is measured on the two stacks around the core (radius r_core + 4 px)."""
+    from scipy import ndimage
+    lab, n = ndimage.label(sat_a | sat_b)
+    out = []
+    for k in range(1, n + 1):
+        blob = lab == k
+        area = int(blob.sum())
+        if area < SAT_MIN_AREA_PX:
+            continue
+        cy, cx = ndimage.center_of_mass(blob)
+        r_core = float(np.sqrt(area / np.pi))
+        xa, ya = flux_centroid(img_a, cx, cy, r_core + 4)
+        xb, yb = flux_centroid(img_b, cx, cy, r_core + 4)
+        shift = float(np.hypot(xb - xa, yb - ya)) if np.isfinite(xa + xb) else np.nan
+        out.append({"x": float(cx), "y": float(cy), "area_px": area, "r_core": r_core,
+                    "r_ring": SAT_RING_FACTOR * r_core + SAT_PAD_PX, "shift_px": shift,
+                    "moving": bool(np.isfinite(shift) and shift > SAT_MOVE_PX),
+                    "xa": xa, "ya": ya, "xb": xb, "yb": yb})
+    return out
+
+
+def _coverage_pair(epochs, a, b):
+    cov_b = epochs[b]["coverage"]
+    cov_a = epochs[a]["coverage"] if a >= 0 else np.min([e["coverage"] for i, e in enumerate(epochs) if i != b], axis=0)
+    return np.minimum(cov_a, cov_b)
+
+
+def _sat_pair(sat_maps, a, b):
+    if sat_maps is None:
+        return None, None
+    sat_b = sat_maps[b]
+    sat_a = sat_maps[a] if a >= 0 else np.any([m for i, m in enumerate(sat_maps) if i != b], axis=0)
+    return sat_a, sat_b
+
+
+def apply_cuts(residuals, epochs, sat_maps=None, min_frames=MIN_FRAMES, edge_px=EDGE_PX, min_change=MIN_CHANGE):
+    """Residuals (find_residuals) -> (same table with new columns, summary dict).
+    New columns:
+      cut        '' (kept) or the first cut it failed, in the order of CUTS:
+                 'low coverage': fewer than min_frames frames under it in either visit (few-frames
+                     visits fail everywhere: their stacks cannot reject a bad frame);
+                 'edge': within edge_px of the area both visits cover with min_frames frames;
+                 'saturated star wings': within r_ring of a saturated core that did not move, or
+                     in the wings (beyond r_core + shift + 2 px) of one that moved;
+                 'small change': |peak| below min_change x the brightest pixel within 2 px in either
+                     stack (see MIN_CHANGE);
+      change     that ratio, |peak| / brightest stack pixel nearby;
+      coverage   frames under it (the smaller of the two visits, smallest of the 3x3 around it);
+      saturated  inside the core of a saturated star that moved between the visits (kept);
+      sat_shift_px  that star's centroid shift (NaN if not saturated);
+      release_boundary  the two visits come from different data releases (calibration differs by
+                 a few percent between DR1 and QR3): flagged, not cut;
+      seen_in, seen_possible  in how many OTHER images a kept residual lies within REPEAT_PX of this
+                 one, out of how many cover this place with min_frames frames (kept rows only).
+    sat_maps: one saturation_map per epoch, or None (no saturation cut: every row gets
+    saturated False and the summary says the cut was not made).
+    summary: input count, removed per cut, kept, pairs whose visits have few frames."""
+    from scipy import ndimage
+    t = residuals.copy()
+    n = len(t)
+    cut = [""] * n
+    cover = np.zeros(n, int)
+    saturated = np.zeros(n, bool)
+    sat_shift = np.full(n, np.nan)
+    boundary = np.zeros(n, bool)
+    change = np.full(n, np.nan)
+    few_pairs = []
+    good_cache = {}
+    for label in sorted(set(t["pair"]), key=lambda p: list(t["pair"]).index(p)):
+        rows = np.where(t["pair"] == label)[0]
+        a, b = int(t["visit_a"][rows[0]]), int(t["visit_b"][rows[0]])
+        cov = _coverage_pair(epochs, a, b)
+        good = cov >= min_frames
+        inner = ndimage.binary_erosion(good, iterations=edge_px, border_value=0) if edge_px > 0 else good
+        good_cache[label] = good
+        n_a = epochs[a].get("n_min", min_frames) if a >= 0 else min(e.get("n_min", min_frames) for i, e in enumerate(epochs) if i != b)
+        if min(n_a, epochs[b].get("n_min", min_frames)) < min_frames:
+            few_pairs.append(label)
+        rel_a = epochs[a].get("releases", "") if a >= 0 else ",".join(sorted({e.get("releases", "") for i, e in enumerate(epochs) if i != b}))
+        rel_b = epochs[b].get("releases", "")
+        sat_a, sat_b = _sat_pair(sat_maps, a, b)
+        img_a = epochs[a]["image"] if a >= 0 else None
+        stars = saturated_stars(sat_a, sat_b, img_a if img_a is not None else epochs[b]["image"] * 0,
+                                epochs[b]["image"]) if sat_a is not None else []
+        ny, nx = cov.shape
+        stacks = [epochs[b]["image"]] + ([epochs[a]["image"]] if a >= 0 else
+                                         [e["image"] for j, e in enumerate(epochs) if j != b])
+        for i in rows:
+            x, y = float(t["x"][i]), float(t["y"][i])
+            ix, iy = int(np.clip(round(x), 0, nx - 1)), int(np.clip(round(y), 0, ny - 1))
+            cover[i] = int(cov[max(iy - 1, 0):iy + 2, max(ix - 1, 0):ix + 2].min())
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                star = max(np.nanmax(im[max(iy - 2, 0):iy + 3, max(ix - 2, 0):ix + 3]) for im in stacks)
+            change[i] = abs(float(t["peak"][i])) / star if star > 0 else np.inf
+            boundary[i] = bool(rel_a and rel_b and rel_a != rel_b)
+            if cover[i] < min_frames:
+                cut[i] = "low coverage"
+                continue
+            if not inner[iy, ix]:
+                cut[i] = "edge"
+                continue
+            for s in stars:
+                d = np.hypot(x - s["x"], y - s["y"])
+                if d > s["r_ring"]:
+                    continue
+                if s["moving"] and d <= s["r_core"] + s["shift_px"] + 2:
+                    saturated[i] = True
+                    sat_shift[i] = s["shift_px"]
+                else:
+                    cut[i] = "saturated star wings"
+                break
+            if not cut[i] and not saturated[i] and change[i] < min_change:
+                cut[i] = "small change"
+    t["cut"] = cut
+    t["change"] = change
+    t["coverage"] = cover
+    t["saturated"] = saturated
+    t["sat_shift_px"] = sat_shift
+    t["release_boundary"] = boundary
+    # seen in other images (kept rows only)
+    kept = np.array([c == "" for c in cut], bool)
+    seen = np.zeros(n, int)
+    possible = np.zeros(n, int)
+    labels = sorted(good_cache, key=lambda p: list(t["pair"]).index(p))
+    for i in np.where(kept)[0]:
+        x, y = float(t["x"][i]), float(t["y"][i])
+        for other in labels:
+            if other == t["pair"][i]:
+                continue
+            g = good_cache[other]
+            if g[int(np.clip(round(y), 0, g.shape[0] - 1)), int(np.clip(round(x), 0, g.shape[1] - 1))]:
+                possible[i] += 1
+                o = kept & (t["pair"] == other)
+                if np.any(np.hypot(np.asarray(t["x"][o]) - x, np.asarray(t["y"][o]) - y) <= REPEAT_PX):
+                    seen[i] += 1
+    t["seen_in"] = seen
+    t["seen_possible"] = possible
+    summary = {"residuals": n, **{c: int(sum(x == c for x in cut)) for c in CUTS},
+               "kept": int(kept.sum()), "few_frames_pairs": few_pairs,
+               "saturation_cut": sat_maps is not None,
+               "release_boundary_kept": int((boundary & kept).sum()),
+               "seen_in_another_kept": int(((seen > 0) & kept).sum()),
+               "could_repeat_kept": int(((possible > 0) & kept).sum())}
+    return t, summary
