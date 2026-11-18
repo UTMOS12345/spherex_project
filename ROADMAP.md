@@ -1,6 +1,7 @@
 # Roadmap
 
 Six next steps after v1.0.0. Each one is written as a GitHub issue: copy the title and the body.
+Items 2, 3 and 4 are done (see the note under each).
 
 ---
 
@@ -37,6 +38,8 @@ they move.
 
 ### 2. Cache cleaned and reprojected frames
 
+**Done:** merged in c7387d8 (`frame-cache` branch, tag `before-framecache` marks the state before it): `spherex/framecache.py`, size cap with LRU eviction, `SPHEREX_FRAME_CACHE=0` turns it off.
+
 **Title:** Cache cleaned and reprojected frames so repeat views with other settings are instant
 
 **Body:**
@@ -68,6 +71,8 @@ the model).
 
 ### 3. Multiprocessing across frames for clean/reproject
 
+**Done:** merged in db019c5 (`speed` branch, commit 14f3728; tag `before-speed` marks the state before it): `spherex/workers.py`, `SPHEREX_WORKERS`, stacks identical for 1 and N workers.
+
 **Title:** Use several CPU cores for cleaning and reprojecting frames
 
 **Body:**
@@ -87,6 +92,8 @@ workers (like `tests/test_parallel_download.py` for downloads).
 ---
 
 ### 4. Adaptive download concurrency with backoff on 502/503
+
+**Done:** merged in db019c5 (`speed` branch, commit 2b2a135): `spherex/throttle.py`, halving on 429/502/503/504 and timeouts, Retry-After, one keep-alive session.
 
 **Title:** Adaptive download concurrency with backoff when IRSA answers 502/503
 
