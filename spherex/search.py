@@ -684,3 +684,48 @@ def _sep_to_segment(c, p0, p1):
     L2 = float(s @ s)
     f = 0.0 if L2 == 0 else float(np.clip((v @ s) / L2, 0, 1))
     return float(np.hypot(*(v - f * s)))
+
+
+# ------------------------------------------------------------------ 4. pictures of the candidates
+def save_thumbnails(cands, epochs, out_dir, half_px=15):
+    """One PNG per candidate in out_dir: the earlier visit, the later visit and their difference
+    (2 x half_px + 1 grid pixels a side, 93" for half_px=15), candidate marked. File names
+    'NNN_<type>_<label>.png' with NNN the row number (rank) -> list of paths."""
+    import os
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from .diff import shared_norm
+    from .combine import _mean
+    os.makedirs(out_dir, exist_ok=True)
+    paths = []
+    for k, c in enumerate(cands):
+        a, b = int(c["visit_a"]), int(c["visit_b"])
+        img_b = epochs[b]["image"]
+        img_a = epochs[a]["image"] if a >= 0 else _mean([e["image"] for i, e in enumerate(epochs) if i != b])
+        x, y = float(c["x"]), float(c["y"])
+        ix, iy = int(round(x)), int(round(y))
+        y0, y1 = max(iy - half_px, 0), iy + half_px + 1
+        x0, x1 = max(ix - half_px, 0), ix + half_px + 1
+        cut_a, cut_b = img_a[y0:y1, x0:x1], img_b[y0:y1, x0:x1]
+        diff = cut_b - cut_a
+        fig, axes = plt.subplots(1, 3, figsize=(7.5, 2.9))
+        norm = shared_norm([cut_a, cut_b]) if np.isfinite(cut_a).any() and np.isfinite(cut_b).any() else None
+        lim = np.nanpercentile(np.abs(diff), 99.5) if np.isfinite(diff).any() else 1
+        for ax, img, title, kw in ((axes[0], cut_a, str(c["date_a"]), dict(norm=norm, cmap="gray")),
+                                   (axes[1], cut_b, str(c["date_b"]), dict(norm=norm, cmap="gray")),
+                                   (axes[2], diff, "later minus earlier", dict(cmap="RdBu_r", vmin=-lim, vmax=lim))):
+            ax.imshow(img, origin="lower", **kw)
+            ax.scatter([x - x0], [y - y0], s=260, facecolors="none", edgecolors="lime", linewidths=1)
+            ax.set_title(title, fontsize=8)
+            ax.set_xticks([]); ax.set_yticks([])
+        pm = f", {c['pm_arcsec_yr']:.1f}\"/yr" if np.isfinite(c["pm_arcsec_yr"]) else ""
+        fig.suptitle(f"#{k}  {c['type']}  {c['label'] if 'label' in c.colnames else ''}  "
+                     f"{c['significance']:.0f} sigma{pm}  pair {c['pair']}", fontsize=9)
+        fig.tight_layout()
+        name = f"{k:03d}_{c['type']}_{(c['label'] if 'label' in c.colnames else 'unlabelled').replace(' ', '-')}.png"
+        path = os.path.join(out_dir, name)
+        fig.savefig(path, dpi=90)
+        plt.close(fig)
+        paths.append(path)
+    return paths

@@ -125,6 +125,8 @@ are not affected.
 | Spectrum | `api.spectrum_figure(text, visit=-1, all_visits=False, progress=None)` | (figure, table) |
 | Flags | `api.flags_figure(text, detector="D2", visit=-1, frame=0)` | (figure, table) |
 | Molecule markers | `api.molecule_bands()` | list of dicts (plain data, no plotting); see "Molecule bands" |
+| Blind search | `api.find_movers(text, fov=10.0, detector="D2", wl=None, days=60, clip=True, nsigma=5.0, method="pairs", pairs="consecutive", catalogues=True, asteroids=True, keep_rejected=False, progress=None)` | table of candidates (not detections); see "Blind search" |
+| Search thumbnails | `api.search_thumbnails(table, out_dir)` | list of PNG paths, one per row of `find_movers` (earlier visit, later visit, difference) |
 
 Show a figure with `st.pyplot(fig)` and then `plt.close(fig)`; a table with
 `st.dataframe(table.to_pandas())`; GIF bytes with `st.image(gif)`.
@@ -328,7 +330,7 @@ can be joined into one text:
 ## Progress
 
 The slow functions (`player_html`, `flipbook`, `picture`, `epochs`, `overlay_figure`,
-`light_curve_figure`, `spectrum_figure`) take `progress=None`: an optional callable
+`light_curve_figure`, `spectrum_figure`, `find_movers`) take `progress=None`: an optional callable
 `progress(stage, done, total)` that is told how far the work has got, so the app can show a
 progress bar while a new target downloads.
 
@@ -376,6 +378,50 @@ def progress(stage, done, total):
 
 Cached images make the early items of "downloading images" fast, so the first estimate of a
 partly cached target is too short and grows as real downloads begin.
+
+## Blind search
+
+`api.find_movers(text, fov=10, detector="D2")` searches the whole field around a target or
+position for things that moved or changed between visits, **without using where the target
+is**. It is also `paramost search "<target or coordinates>" --fov 10 --detector D2 [--csv
+out.csv] [--thumbnails dir/] [--offline] [--no-clip] [--no-asteroids]`. The method is in
+`spherex/search.py`; how well it works on real data is in
+[search-validation.md](search-validation.md).
+
+**A candidate is not a detection.** It is a residual in the difference of two visits that survived
+the artefact cuts. `unexplained` candidates are mostly artefacts; a `known ...` label only says that
+a catalogue source lies within 3″ (in crowded fields that can be chance: `chance_match`).
+
+1. **Residuals.** For each pair of visits (`pairs="consecutive"`: 0-1, 1-2, ...; `"all"`: every pair)
+   the difference later minus earlier (`spherex.diff.difference`, as `picture(kind="pair")`), or with
+   `method="minus_mean"` each visit minus the mean of the others, is smoothed with a 6″ Gaussian. Its
+   noise is the sigma-clipped standard deviation of the smoothed difference itself, and positive and
+   negative areas of at least 5 pixels above `nsigma` (default 5) are residuals.
+2. **Artefact cuts**, in this order (`table.meta["cuts"]` counts what each removed):
+   `low coverage` (fewer than 4 frames under it in either visit), `edge` (within 5 pixels of the
+   well-covered area), `saturated star wings` (within 2.5 r + 4 px of a saturated core, from the
+   frames' OVERFLOW / BLOOM flags; for a saturated star whose centroid moved between the visits, only
+   its wings are cut and its core residuals are kept), `small change` (under 30% of the star beneath
+   it: a star that only looks different in the two visits). Pairs across a data release (DR1 / QR3:
+   calibration differs by a few percent) are flagged (`release_boundary`), not cut. `seen_in` /
+   `seen_possible`: in how many other pairs the same place has a residual / could have one.
+3. **Classification.** `mover`: a negative residual (where it was) next to a positive one (where it
+   is), or the core of a saturated star that moved; its `pm_arcsec_yr` comes from the shift of the
+   source's flux centroid between the two stacks (a blended dipole's lobes are one PSF apart whatever
+   the motion, so their separation is no measure of it); at most 15″/yr. `variable`: an unpaired
+   residual at a place where another pair also has one. `single`: any other.
+4. **Catalogues**, each at the date of the visit the position refers to: Gaia DR3 and CatWISE2020
+   (moved with their proper motions; IRSA, then ESA for Gaia) and SkyBoT (asteroids, at the first and
+   last frame of the visit). Labels: `known star`, `known infrared source`, `known asteroid`,
+   `unexplained`, with the overlay verdict wording in `verdict`. A mover matched to a Gaia star says
+   whether the star's catalogue motion agrees with the implied one. None of these services is at CDS.
+
+`clip`: the sigma-clipped stacks (default) suppress a source that is in only part of a visit, which
+is what a fast mover or a flare looks like; `clip=False` keeps those, but also keeps single-frame
+defects, which then become candidates. Columns and `table.meta` are listed in the docstring of
+`api.find_movers`. Progress: the stacking stages (if not in memory), `"measuring"` (once per
+difference image, then the cuts), `"searching the archive"` (once per catalogue and visit; SkyBoT
+twice per visit), `"drawing"`.
 
 ## Errors
 
