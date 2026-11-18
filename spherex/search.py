@@ -287,7 +287,8 @@ def apply_cuts(residuals, epochs, sat_maps=None, min_frames=MIN_FRAMES, edge_px=
       change     that ratio, |peak| / brightest stack pixel nearby;
       coverage   frames under it (the smaller of the two visits, smallest of the 3x3 around it);
       saturated  inside the core of a saturated star that moved between the visits (kept);
-      sat_shift_px  that star's centroid shift (NaN if not saturated);
+      sat_shift_px  that star's centroid shift (NaN if not saturated); sat_xa, sat_ya, sat_xb,
+                 sat_yb its flux centroid in visit a and in visit b (grid pixels);
       release_boundary  the two visits come from different data releases (calibration differs by
                  a few percent between DR1 and QR3): flagged, not cut;
       seen_in, seen_possible  in how many OTHER images a kept residual lies within REPEAT_PX of this
@@ -302,6 +303,7 @@ def apply_cuts(residuals, epochs, sat_maps=None, min_frames=MIN_FRAMES, edge_px=
     cover = np.zeros(n, int)
     saturated = np.zeros(n, bool)
     sat_shift = np.full(n, np.nan)
+    sat_pos = np.full((n, 4), np.nan)                     # moving saturated star: xa, ya, xb, yb
     boundary = np.zeros(n, bool)
     change = np.full(n, np.nan)
     few_pairs = []
@@ -347,6 +349,7 @@ def apply_cuts(residuals, epochs, sat_maps=None, min_frames=MIN_FRAMES, edge_px=
                 if s["moving"] and d <= s["r_core"] + s["shift_px"] + 2:
                     saturated[i] = True
                     sat_shift[i] = s["shift_px"]
+                    sat_pos[i] = (s["xa"], s["ya"], s["xb"], s["yb"])
                 else:
                     cut[i] = "saturated star wings"
                 break
@@ -357,6 +360,8 @@ def apply_cuts(residuals, epochs, sat_maps=None, min_frames=MIN_FRAMES, edge_px=
     t["coverage"] = cover
     t["saturated"] = saturated
     t["sat_shift_px"] = sat_shift
+    for k, name in enumerate(("sat_xa", "sat_ya", "sat_xb", "sat_yb")):
+        t[name] = sat_pos[:, k]
     t["release_boundary"] = boundary
     # seen in other images (kept rows only)
     kept = np.array([c == "" for c in cut], bool)
@@ -383,3 +388,299 @@ def apply_cuts(residuals, epochs, sat_maps=None, min_frames=MIN_FRAMES, edge_px=
                "seen_in_another_kept": int(((seen > 0) & kept).sum()),
                "could_repeat_kept": int(((possible > 0) & kept).sum())}
     return t, summary
+
+
+# ------------------------------------------------------------------ 3. classify and cross-match
+PIXSCALE_ARCSEC = 3.0   # the stacks' grid (make_epochs default)
+MAX_PM_ARCSEC_YR = 15.0 # dipole lobes may be at most MAX_PM x baseline + 2 x PSF apart (the fastest
+                        #   known stars move ~10"/yr; a blended dipole's lobes are ~1 PSF apart
+                        #   however small the motion)
+PSF_FWHM_PX = 2.0       # SPHEREx PSF on the 3" grid, roughly (6.15" pixels)
+LOBE_RATIO = 4.0        # the two lobes of a dipole differ in flux by at most this factor
+MATCH_ARCSEC = 3.0      # catalogue match radius, as in the overlay verdicts. Real residuals in the
+                        #   Barnard's Star field sit 0.3-1.6" from their star; at 6" half of all
+                        #   random positions there would "match" a Gaia source (chance_match)
+CHANCE_NOTE = 0.05      # a match by chance more likely than this is mentioned in the verdict
+PM_AGREE = (1.0, 0.3)   # implied and catalogue motion agree within max(1"/yr, 30%)
+ASTEROID_MATCH_ARCSEC = 10.0   # around the asteroid's path during the visit
+
+LABELS = {
+    "known star": "A Gaia DR3 source lies within {r}″ (a known star).",
+    "known infrared source": "A CatWISE2020 source lies within {r}″, none in Gaia (a known object that "
+                             "is faint or cold in visible light).",
+    "known asteroid": "A known asteroid or comet (SkyBoT) passes within {ra}″ during the visit.",
+    "unexplained": "No Gaia DR3, CatWISE2020 or SkyBoT object within {r}″. This is not a detection: "
+                   "most such residuals are artefacts. Look at the pictures.",
+}
+
+CANDIDATE_COLUMNS = ["pair", "visit_a", "visit_b", "date_a", "date_b", "type", "ra", "dec", "x", "y",
+                     "significance", "sign", "shift_arcsec", "pm_arcsec_yr", "pm_pa_deg", "change",
+                     "saturated", "release_boundary", "seen_in", "seen_possible", "n_residuals"]
+
+
+def _years(mjd_a, mjd_b):
+    return (mjd_b - mjd_a) / 365.25
+
+
+def motion(ep_a, ep_b, x, y, r, pixscale_arcsec=PIXSCALE_ARCSEC):
+    """Centroid shift of the source near (x, y) from stack a to stack b -> (xa, ya, xb, yb,
+    shift_arcsec, pm_arcsec_yr, position angle deg east of north). The flux-weighted centroid is
+    measured on each stack within r pixels (a blended dipole's lobes are about one PSF apart
+    whatever the motion, so the lobe separation is no measure of it)."""
+    xa, ya = flux_centroid(ep_a["image"], x, y, r)
+    xb, yb = flux_centroid(ep_b["image"], x, y, r)
+    if not np.isfinite(xa + xb):
+        return xa, ya, xb, yb, np.nan, np.nan, np.nan
+    dx, dy = xb - xa, yb - ya                 # north-up grid with cdelt1 < 0: x grows to the west
+    shift = float(np.hypot(dx, dy) * pixscale_arcsec)
+    years = _years(ep_a["mjd"], ep_b["mjd"])
+    pa = float(np.degrees(np.arctan2(-dx, dy)) % 360)    # east = -x on a north-up grid
+    return xa, ya, xb, yb, shift, shift / years if years > 0 else np.nan, pa
+
+
+def classify(cut_table, epochs, max_pm=MAX_PM_ARCSEC_YR, pixscale_arcsec=PIXSCALE_ARCSEC):
+    """Kept residuals (apply_cuts, cut == '') -> Table of candidates (CANDIDATE_COLUMNS), one per
+    object per image:
+      mover     a dipole: a negative residual (where it was in visit a) and a positive one (where it
+                is in visit b) within max_pm x baseline + 2 PSF of each other, fluxes within
+                LOBE_RATIO, whose measured motion is at most max_pm; or the residuals in the core of a saturated star that moved. ra, dec, x,
+                y = its centroid in visit b; shift and pm from the centroid shift (motion());
+      variable  an unpaired residual at a place where another image also has one (seen_in > 0);
+      single    any other unpaired residual: present in one visit only (an asteroid, a flare, an
+                artefact), or a change seen once.
+    For minus_mean images (visit_a = -1) no dipoles are formed (no single earlier visit)."""
+    k = cut_table[cut_table["cut"] == ""]
+    out = []
+    for label in sorted(set(k["pair"]), key=lambda p: list(k["pair"]).index(p)):
+        s = k[k["pair"] == label]
+        a, b = int(s["visit_a"][0]), int(s["visit_b"][0])
+        used = set()
+        if a >= 0:
+            years = _years(epochs[a]["mjd"], epochs[b]["mjd"])
+            max_sep = max_pm * years / pixscale_arcsec + 2 * PSF_FWHM_PX
+            # saturated movers: all residuals of one moving core -> one candidate
+            sat = [i for i in range(len(s)) if s["saturated"][i]]
+            groups = {}
+            for i in sat:
+                groups.setdefault((round(float(s["sat_xb"][i]), 3), round(float(s["sat_yb"][i]), 3)), []).append(i)
+            for key in sorted(groups):
+                idx = groups[key]
+                i0 = max(idx, key=lambda i: s["significance"][i])
+                xa, ya, xb, yb = (float(s[c][i0]) for c in ("sat_xa", "sat_ya", "sat_xb", "sat_yb"))
+                shift = float(np.hypot(xb - xa, yb - ya) * pixscale_arcsec)
+                out.append(_candidate(s, i0, epochs, "mover", xb, yb, shift, shift / years,
+                                      float(np.degrees(np.arctan2(-(xb - xa), yb - ya)) % 360), len(idx)))
+                used |= set(idx)
+            pos = sorted([i for i in range(len(s)) if s["sign"][i] > 0 and i not in used],
+                         key=lambda i: (-s["significance"][i], i))
+            neg = [i for i in range(len(s)) if s["sign"][i] < 0 and i not in used]
+            for i in pos:
+                options = []
+                for j in neg:
+                    if j in used:
+                        continue
+                    d = float(np.hypot(s["x"][i] - s["x"][j], s["y"][i] - s["y"][j]))
+                    ratio = abs(s["flux"][i] / s["flux"][j]) if s["flux"][j] else np.inf
+                    if d <= max_sep and 1 / LOBE_RATIO <= ratio <= LOBE_RATIO:
+                        options.append((d, j))
+                best = None
+                for d, j in sorted(options):              # nearest first; the motion must be plausible too
+                    mx, my = (s["x"][i] + s["x"][j]) / 2, (s["y"][i] + s["y"][j]) / 2
+                    meas = motion(epochs[a], epochs[b], mx, my, d / 2 + 2 * PSF_FWHM_PX, pixscale_arcsec)
+                    if np.isfinite(meas[5]) and meas[5] <= max_pm:
+                        best, (xa, ya, xb, yb, shift, pm, pa) = j, meas
+                        break
+                if best is None:
+                    continue
+                cx, cy = (xb, yb) if np.isfinite(xb) else (float(s["x"][i]), float(s["y"][i]))
+                out.append(_candidate(s, i, epochs, "mover", cx, cy, shift, pm, pa, 2,
+                                      significance=max(s["significance"][i], s["significance"][best])))
+                used |= {i, best}
+        for i in range(len(s)):
+            if i in used:
+                continue
+            kind = "variable" if s["seen_in"][i] > 0 else "single"
+            out.append(_candidate(s, i, epochs, kind, float(s["x"][i]), float(s["y"][i]), np.nan, np.nan, np.nan, 1))
+    t = Table(rows=out, names=CANDIDATE_COLUMNS) if out else Table(
+        names=CANDIDATE_COLUMNS, dtype=[str, int, int, str, str, str] + [float] * 5 + [int] + [float] * 4
+        + [bool, bool, int, int, int])
+    if len(t):
+        for c in ("x", "y"):
+            t[c] = np.asarray(t[c], float)
+        wcs = epochs[0]["wcs"]
+        sky = wcs.pixel_to_world(np.asarray(t["x"]), np.asarray(t["y"]))
+        t["ra"], t["dec"] = sky.ra.deg, sky.dec.deg
+    return t
+
+
+def _candidate(s, i, epochs, kind, x, y, shift, pm, pa, n_res, significance=None):
+    return [s["pair"][i], int(s["visit_a"][i]), int(s["visit_b"][i]), s["date_a"][i], s["date_b"][i], kind,
+            np.nan, np.nan, float(x), float(y),
+            float(s["significance"][i] if significance is None else significance),
+            0 if kind == "mover" else int(s["sign"][i]), float(shift), float(pm), float(pa),
+            float(s["change"][i]), bool(s["saturated"][i]), bool(s["release_boundary"][i]),
+            int(s["seen_in"][i]), int(s["seen_possible"][i]), int(n_res)]
+
+
+def _epoch_of(c, epochs):
+    """The visit a candidate's position refers to: visit b (where it is now), or visit a for a
+    negative single (something that was there in a and is gone in b)."""
+    if c["type"] == "single" and c["sign"] < 0 and c["visit_a"] >= 0:
+        return epochs[int(c["visit_a"])]
+    return epochs[int(c["visit_b"])]
+
+
+def crossmatch(cands, epochs, gaia=True, wise=True, asteroids=True, radius_deg=0.15,
+               match_arcsec=MATCH_ARCSEC, progress=None):
+    """Candidates (classify) -> (same table with catalogue columns and a label, notes).
+    Each candidate is matched at the date of the visit its position refers to (_epoch_of):
+      Gaia DR3 (spherex.gaia, propagated with its proper motion), CatWISE2020 (spherex.wise,
+      propagated with its motion), SkyBoT (spherex.asteroids) at the first and the last frame of the
+      visit, a candidate within ASTEROID_MATCH_ARCSEC of the straight path between the two.
+    New columns: gaia_sep_arcsec, gaia_source_id, gaia_g, gaia_pm_arcsec_yr, wise_sep_arcsec,
+    wise_name, asteroid, asteroid_sep_arcsec, label (LABELS keys), chance_match (probability that a
+    random position in this field has a source of the label's catalogue that close: 1 - exp(-density
+    x area), from the number of catalogue sources in the circle), verdict (the sentence; it says
+    when chance_match >= CHANCE_NOTE, and for a mover matched to a Gaia star whether the star's
+    catalogue motion agrees with the implied one, within PM_AGREE).
+    notes: catalogues that failed (then no candidate can get that label), counts per label.
+    The catalogues are asked once per visit, for a circle of radius_deg around the grid centre
+    (0.15 deg covers a 10' view; the same circle as the cached demo cones)."""
+    from astropy.coordinates import SkyCoord
+    from astropy.time import Time
+    import astropy.units as u
+    from .progress import report, SEARCHING
+    t = cands.copy()
+    n = len(t)
+    cols = {"gaia_sep_arcsec": np.full(n, np.nan), "gaia_source_id": [""] * n, "gaia_g": np.full(n, np.nan),
+            "gaia_pm_arcsec_yr": np.full(n, np.nan), "wise_sep_arcsec": np.full(n, np.nan),
+            "wise_name": [""] * n, "asteroid": [""] * n, "asteroid_sep_arcsec": np.full(n, np.nan)}
+    notes = {"failed": [], "asked": [], "chance_match": {}}
+    if not n:
+        for c, v in cols.items():
+            t[c] = v
+        t["label"], t["verdict"] = [], []
+        return t, notes
+    shape = epochs[0]["image"].shape
+    center = epochs[0]["wcs"].pixel_to_world(shape[1] / 2, shape[0] / 2)
+    visits = []
+    for c in t:
+        ep = _epoch_of(c, epochs)
+        if not any(ep is v for v in visits):
+            visits.append(ep)
+    jobs = len(visits) * (int(bool(gaia)) + int(bool(wise)) + 2 * int(bool(asteroids)))
+    done = 0
+    report(progress, SEARCHING, 0, jobs)
+    pos = SkyCoord(np.asarray(t["ra"]) * u.deg, np.asarray(t["dec"]) * u.deg)
+    for ep in visits:
+        rows = np.array([_epoch_of(c, epochs) is ep for c in t])
+        when = Time(ep["mjd"], format="mjd")
+        here = pos[rows]
+        idx = np.where(rows)[0]
+        for name, wanted in (("gaia", gaia), ("wise", wise)):
+            if not wanted:
+                continue
+            try:
+                if name == "gaia":
+                    from .gaia import gaia_overlay
+                    stars = gaia_overlay(center, radius_deg, when)
+                else:
+                    from .wise import wise_overlay
+                    stars = wise_overlay(center, radius_deg, when)
+                if name not in notes["asked"]:
+                    notes["asked"].append(name)
+                    density = len(stars) / (np.pi * (radius_deg * 3600) ** 2)      # per square arcsec
+                    notes["chance_match"][name] = float(1 - np.exp(-density * np.pi * match_arcsec ** 2))
+                if len(stars):
+                    cat = SkyCoord(np.asarray(stars["ra_t"]) * u.deg, np.asarray(stars["dec_t"]) * u.deg)
+                    j, sep, _ = here.match_to_catalog_sky(cat)
+                    for k, jj, ss in zip(idx, j, sep.arcsec):
+                        if name == "gaia":
+                            cols["gaia_sep_arcsec"][k] = ss
+                            cols["gaia_source_id"][k] = str(stars["source_id"][jj])
+                            cols["gaia_g"][k] = float(stars["phot_g_mean_mag"][jj])
+                            cols["gaia_pm_arcsec_yr"][k] = float(stars["pm_total"][jj]) / 1000
+                        else:
+                            cols["wise_sep_arcsec"][k] = ss
+                            cols["wise_name"][k] = str(stars["source_name"][jj])
+            except Exception as e:
+                msg = f"{name}: {type(e).__name__}: {str(e)[:80]}"
+                if msg not in notes["failed"]:
+                    notes["failed"].append(msg)
+            done += 1
+            report(progress, SEARCHING, done, jobs)
+        if asteroids:
+            try:
+                from .asteroids import known_asteroids
+                fov_r = float(np.hypot(*shape) / 2 * PIXSCALE_ARCSEC / 3600) * 1.2
+                ends = []
+                for m in (ep.get("first_mjd", ep["mjd"]), ep.get("last_mjd", ep["mjd"])):
+                    ends.append(known_asteroids(center, fov_r, Time(m, format="mjd")))
+                    done += 1
+                    report(progress, SEARCHING, done, jobs)
+                if "asteroids" not in notes["asked"]:
+                    notes["asked"].append("asteroids")
+                first, last = ends
+                for r in first:
+                    other = last[last["name"] == r["name"]]
+                    p0 = SkyCoord(r["ra"] * u.deg, r["dec"] * u.deg)
+                    p1 = SkyCoord(other["ra"][0] * u.deg, other["dec"][0] * u.deg) if len(other) else p0
+                    for k, c in zip(idx, here):
+                        d = _sep_to_segment(c, p0, p1)
+                        if d < ASTEROID_MATCH_ARCSEC and not (cols["asteroid_sep_arcsec"][k] <= d):
+                            cols["asteroid"][k] = str(r["name"])
+                            cols["asteroid_sep_arcsec"][k] = d
+            except Exception as e:
+                msg = f"asteroids: {type(e).__name__}: {str(e)[:80]}"
+                if msg not in notes["failed"]:
+                    notes["failed"].append(msg)
+                done = min(jobs, done + 2)
+                report(progress, SEARCHING, done, jobs)
+    for c, v in cols.items():
+        t[c] = v
+    labels, verdicts, chance = [], [], []
+    for k in range(n):
+        p = np.nan
+        if cols["gaia_sep_arcsec"][k] <= match_arcsec:
+            lab, p = "known star", notes["chance_match"].get("gaia", np.nan)
+        elif cols["wise_sep_arcsec"][k] <= match_arcsec:
+            lab, p = "known infrared source", notes["chance_match"].get("wise", np.nan)
+        elif cols["asteroid_sep_arcsec"][k] <= ASTEROID_MATCH_ARCSEC:
+            lab = "known asteroid"
+        else:
+            lab = "unexplained"
+        text = LABELS[lab].format(r=f"{match_arcsec:g}", ra=f"{ASTEROID_MATCH_ARCSEC:g}")
+        agrees = None
+        if lab == "known star" and t["type"][k] == "mover":
+            implied, cat = float(t["pm_arcsec_yr"][k]), cols["gaia_pm_arcsec_yr"][k]
+            if np.isfinite(implied) and np.isfinite(cat):
+                agrees = abs(implied - cat) <= max(PM_AGREE[0], PM_AGREE[1] * cat)
+                if agrees:
+                    text += f" Its catalogue motion, {cat:.2f}″/yr, agrees with the implied {implied:.2f}″/yr."
+                else:
+                    text += (f" Its catalogue motion is {cat:.2f}″/yr, not the implied {implied:.2f}″/yr: the "
+                             "dipole is not this star's motion (most likely the star looks different in "
+                             "the two visits).")
+        if np.isfinite(p) and p >= CHANCE_NOTE and not agrees:     # an agreeing motion is no coincidence
+            text += (f" In this field a random position has a {p:.0%} chance of a source that close, so "
+                     "the match may be a coincidence.")
+        labels.append(lab)
+        verdicts.append(text)
+        chance.append(p)
+    t["label"] = labels
+    t["chance_match"] = chance
+    t["verdict"] = verdicts
+    notes["labels"] = {lab: labels.count(lab) for lab in LABELS}
+    return t, notes
+
+
+def _sep_to_segment(c, p0, p1):
+    """Angular distance (arcsec) of SkyCoord c from the great-circle segment p0-p1 (small angles)."""
+    import astropy.units as u
+    off = p0.spherical_offsets_to(c)
+    seg = p0.spherical_offsets_to(p1)
+    v = np.array([off[0].to_value(u.arcsec), off[1].to_value(u.arcsec)])
+    s = np.array([seg[0].to_value(u.arcsec), seg[1].to_value(u.arcsec)])
+    L2 = float(s @ s)
+    f = 0.0 if L2 == 0 else float(np.clip((v @ s) / L2, 0, 1))
+    return float(np.hypot(*(v - f * s)))

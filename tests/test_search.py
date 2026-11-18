@@ -117,3 +117,100 @@ def test_seen_in_other_pairs():
     k = t[t["cut"] == ""]
     assert len(k) == 2 and set(k["seen_in"]) == {1} and set(k["seen_possible"]) == {1}
     assert summary["seen_in_another_kept"] == 2
+
+
+# ------------------------------------------------------------------ 3. classify and cross-match
+from astropy.table import Table
+
+
+def _classified(sources, n_visits=2, step_days=180.0, **kw):
+    eps = visits(sources, n_visits=n_visits, step_days=step_days, **kw)
+    t, _ = search.apply_cuts(search.find_residuals(eps), eps)
+    return eps, search.classify(t, eps)
+
+
+def test_dipole_pairing_and_implied_motion():
+    # 3 px per 180 days on the 3" grid = 9" / 0.493 yr = 18.3"/yr: above MAX_PM, so not paired
+    eps, c = _classified([lambda i: gauss(60 + 3 * i, 60, 4.0)])
+    assert "mover" not in set(c["type"])
+    # 1.5 px per 180 days = 9.1"/yr toward -x (east): paired, motion measured from the centroids
+    eps, c = _classified([lambda i: gauss(60 - 1.5 * i, 60, 4.0)])
+    m = c[c["type"] == "mover"]
+    assert len(m) == 1 and m["n_residuals"][0] == 2
+    assert abs(m["pm_arcsec_yr"][0] - 1.5 * 3 / (180 / 365.25)) < 0.5
+    assert abs(m["pm_pa_deg"][0] - 90) < 10                       # east of north
+    assert abs(m["x"][0] - 58.5) < 0.3                            # position in the later visit
+
+
+def test_variable_vs_single():
+    var = lambda i: gauss(40, 40, [1.0, 3.0, 1.0][i])             # changes twice at one place
+    new = lambda i: gauss(80, 80, 2.0 if i == 2 else 0.0)         # appears once
+    eps, c = _classified([var, new], n_visits=3)
+    kinds = {(round(x), round(y)): k for x, y, k in zip(c["x"], c["y"], c["type"])}
+    assert kinds[(40, 40)] == "variable" and kinds[(80, 80)] == "single"
+
+
+def _fake_catalogues(monkeypatch, gaia_rows, wise_rows=(), asteroid_rows=None):
+    from spherex import gaia, wise, asteroids
+    def g(center, radius, t):
+        return Table(rows=list(gaia_rows) or None, names=["source_id", "ra_t", "dec_t", "phot_g_mean_mag", "pm_total"],
+                     dtype=[str, float, float, float, float])
+    def w(center, radius, t):
+        return Table(rows=list(wise_rows) or None, names=["source_name", "ra_t", "dec_t"], dtype=[str, float, float])
+    def a(center, radius, t):
+        if asteroid_rows is None:
+            raise OSError("SkyBoT down")
+        return Table(rows=list(asteroid_rows) or None, names=["name", "type", "ra", "dec", "v_mag"],
+                     dtype=[str, str, float, float, float])
+    monkeypatch.setattr(gaia, "gaia_overlay", g)
+    monkeypatch.setattr(wise, "wise_overlay", w)
+    monkeypatch.setattr(asteroids, "known_asteroids", a)
+
+
+def test_crossmatch_labels_and_wording(monkeypatch):
+    eps, c = _classified([lambda i: gauss(60 - 1.5 * i, 60, 4.0),          # a mover
+                          lambda i: gauss(30, 90, 2.0 if i else 0.0),       # appears: unexplained
+                          lambda i: gauss(90, 30, 2.0 if i else 0.0)])      # appears at a WISE source
+    wcs = eps[0]["wcs"]
+    m = c[c["type"] == "mover"][0]
+    star = wcs.pixel_to_world(m["x"], m["y"])
+    ir = wcs.pixel_to_world(90, 30)
+    _fake_catalogues(monkeypatch, [("1", star.ra.deg, star.dec.deg, 9.0, 2.0)],      # moves 2"/yr, not 9
+                     [("J1", ir.ra.deg, ir.dec.deg)], asteroid_rows=None)
+    t, notes = search.crossmatch(c, eps)
+    lab = {(round(x), round(y)): (l, v) for x, y, l, v in zip(t["x"], t["y"], t["label"], t["verdict"])}
+    mover_label, mover_text = lab[(round(m["x"]), round(m["y"]))]
+    assert mover_label == "known star" and "not the implied" in mover_text
+    assert lab[(90, 30)][0] == "known infrared source"
+    assert lab[(30, 90)][0] == "unexplained" and "This is not a detection" in lab[(30, 90)][1]
+    assert any(f.startswith("asteroids: OSError") for f in notes["failed"])
+    assert notes["labels"]["known asteroid"] == 0
+
+
+def test_chance_match_is_reported_in_crowded_fields(monkeypatch):
+    eps, c = _classified([lambda i: gauss(30, 90, 2.0 if i else 0.0)])
+    wcs = eps[0]["wcs"]
+    p = wcs.pixel_to_world(c["x"][0], c["y"][0])
+    rng = np.random.default_rng(0)                               # 20000 stars in the 0.15 deg circle
+    crowd = [(str(k), p.ra.deg + rng.uniform(-0.15, 0.15), p.dec.deg + rng.uniform(-0.15, 0.15), 20.0, 0.0)
+             for k in range(20000)] + [("near", p.ra.deg, p.dec.deg + 1 / 3600, 20.0, 0.0)]
+    _fake_catalogues(monkeypatch, crowd, asteroid_rows=[])
+    t, notes = search.crossmatch(c, eps)
+    assert t["label"][0] == "known star" and notes["chance_match"]["gaia"] > 0.3
+    assert "may be a coincidence" in t["verdict"][0]
+
+
+def test_asteroid_on_its_path(monkeypatch):
+    eps, c = _classified([lambda i: gauss(30, 90, 2.0 if i else 0.0)])
+    wcs = eps[0]["wcs"]
+    p0, p1 = wcs.pixel_to_world(20, 90), wcs.pixel_to_world(40, 90)   # passes through (30, 90)
+    calls = []
+    from spherex import gaia, wise, asteroids
+    _fake_catalogues(monkeypatch, [], asteroid_rows=[])
+    def a(center, radius, t):
+        calls.append(t)
+        q = p0 if len(calls) % 2 else p1
+        return Table(rows=[("(1) Ceres", "MB", q.ra.deg, q.dec.deg, 9.0)], names=["name", "type", "ra", "dec", "v_mag"])
+    monkeypatch.setattr(asteroids, "known_asteroids", a)
+    t, notes = search.crossmatch(c, eps)
+    assert t["label"][0] == "known asteroid" and t["asteroid"][0] == "(1) Ceres"
