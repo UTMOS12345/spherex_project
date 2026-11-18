@@ -214,3 +214,42 @@ def test_asteroid_on_its_path(monkeypatch):
     monkeypatch.setattr(asteroids, "known_asteroids", a)
     t, notes = search.crossmatch(c, eps)
     assert t["label"][0] == "known asteroid" and t["asteroid"][0] == "(1) Ceres"
+
+
+def test_minus_mean_keeps_a_moving_saturated_core():
+    mover = lambda i: gauss(60 + 1.0 * i, 60, 50.0, 2.5)
+    eps = visits([mover], n_visits=3)
+    sat = []
+    for i in range(3):
+        m = np.zeros((N, N), bool)
+        m[57:64, 57 + i:64 + i] = True
+        sat.append(m)
+    t, _ = search.apply_cuts(search.find_residuals(eps, method="minus_mean"), eps, sat)
+    end = t[(t["pair"] == "2-mean") & (np.hypot(np.asarray(t["x"]) - 61, np.asarray(t["y"]) - 60) < 5)]
+    assert len(end) and set(end["cut"]) == {""} and end["saturated"].all()
+
+
+def test_minus_mean_movers_use_the_mean_date():
+    eps = visits([lambda i: gauss(60 - 1.0 * i, 60, 4.0)], n_visits=3)     # 1 px east per 180 d
+    t, _ = search.apply_cuts(search.find_residuals(eps, method="minus_mean"), eps)
+    c = search.classify(t, eps)
+    m = c[c["type"] == "mover"]
+    assert set(m["pair"]) <= {"0-mean", "2-mean"}                          # 1-mean: no baseline
+    assert len(m) >= 1 and all(abs(pa - 90) < 15 for pa in m["pm_pa_deg"])   # east, also for visit 0
+
+
+def test_match_prefers_the_bright_or_comoving_source(monkeypatch):
+    eps, c = _classified([lambda i: gauss(60 - 1.5 * i, 60, 4.0), lambda i: gauss(30, 90, 2.0 if i else 0.0)])
+    wcs = eps[0]["wcs"]
+    m = c[c["type"] == "mover"][0]
+    s = c[c["type"] != "mover"][0]
+    pm_ = wcs.pixel_to_world(m["x"], m["y"])
+    ps = wcs.pixel_to_world(s["x"], s["y"])
+    d = 1.0 / 3600
+    _fake_catalogues(monkeypatch, [("faint-static", pm_.ra.deg, pm_.dec.deg + 0.3 * d, 21.0, 0.0),
+                                   ("bright-mover", pm_.ra.deg, pm_.dec.deg + 1.5 * d, 8.0, float(m["pm_arcsec_yr"]) * 1000),
+                                   ("faint", ps.ra.deg, ps.dec.deg + 0.2 * d, 21.0, 0.0),
+                                   ("bright", ps.ra.deg, ps.dec.deg + 2.0 * d, 12.0, 0.0)], asteroid_rows=[])
+    t, _ = search.crossmatch(c, eps)
+    got = dict(zip(t["type"], t["gaia_source_id"]))
+    assert got["mover"] == "bright-mover" and got[s["type"]] == "bright"

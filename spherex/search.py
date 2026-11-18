@@ -273,6 +273,11 @@ def _sat_pair(sat_maps, a, b):
     return sat_a, sat_b
 
 
+def _mean_of_others(epochs, b):
+    from .combine import _mean
+    return _mean([e["image"] for i, e in enumerate(epochs) if i != b])
+
+
 def apply_cuts(residuals, epochs, sat_maps=None, min_frames=MIN_FRAMES, edge_px=EDGE_PX, min_change=MIN_CHANGE):
     """Residuals (find_residuals) -> (same table with new columns, summary dict).
     New columns:
@@ -321,9 +326,10 @@ def apply_cuts(residuals, epochs, sat_maps=None, min_frames=MIN_FRAMES, edge_px=
         rel_a = epochs[a].get("releases", "") if a >= 0 else ",".join(sorted({e.get("releases", "") for i, e in enumerate(epochs) if i != b}))
         rel_b = epochs[b].get("releases", "")
         sat_a, sat_b = _sat_pair(sat_maps, a, b)
-        img_a = epochs[a]["image"] if a >= 0 else None
-        stars = saturated_stars(sat_a, sat_b, img_a if img_a is not None else epochs[b]["image"] * 0,
-                                epochs[b]["image"]) if sat_a is not None else []
+        # the "earlier" picture: visit a, or for minus_mean the mean of the other visits (what the
+        # residual image subtracted), so a saturated star's centroid shift is measured against it
+        img_a = epochs[a]["image"] if a >= 0 else _mean_of_others(epochs, b)
+        stars = saturated_stars(sat_a, sat_b, img_a, epochs[b]["image"]) if sat_a is not None else []
         ny, nx = cov.shape
         stacks = [epochs[b]["image"]] + ([epochs[a]["image"]] if a >= 0 else
                                          [e["image"] for j, e in enumerate(epochs) if j != b])
@@ -397,6 +403,8 @@ MAX_PM_ARCSEC_YR = 15.0 # dipole lobes may be at most MAX_PM x baseline + 2 x PS
                         #   however small the motion)
 PSF_FWHM_PX = 2.0       # SPHEREx PSF on the 3" grid, roughly (6.15" pixels)
 LOBE_RATIO = 4.0        # the two lobes of a dipole differ in flux by at most this factor
+MIN_BASELINE_YR = 0.1   # no movers from images whose two dates are closer than this (minus_mean of a
+                        #   middle visit: the mean of the others is dated almost at the same time)
 MATCH_ARCSEC = 3.0      # catalogue match radius, as in the overlay verdicts. Real residuals in the
                         #   Barnard's Star field sit 0.3-1.6" from their star; at 6" half of all
                         #   random positions there would "match" a Gaia source (chance_match)
@@ -434,8 +442,10 @@ def motion(ep_a, ep_b, x, y, r, pixscale_arcsec=PIXSCALE_ARCSEC):
     dx, dy = xb - xa, yb - ya                 # north-up grid with cdelt1 < 0: x grows to the west
     shift = float(np.hypot(dx, dy) * pixscale_arcsec)
     years = _years(ep_a["mjd"], ep_b["mjd"])
+    if years < 0:                             # minus_mean of an early visit: b is before "a"
+        dx, dy = -dx, -dy
     pa = float(np.degrees(np.arctan2(-dx, dy)) % 360)    # east = -x on a north-up grid
-    return xa, ya, xb, yb, shift, shift / years if years > 0 else np.nan, pa
+    return xa, ya, xb, yb, shift, shift / abs(years) if years else np.nan, pa
 
 
 def classify(cut_table, epochs, max_pm=MAX_PM_ARCSEC_YR, pixscale_arcsec=PIXSCALE_ARCSEC):
@@ -448,15 +458,18 @@ def classify(cut_table, epochs, max_pm=MAX_PM_ARCSEC_YR, pixscale_arcsec=PIXSCAL
       variable  an unpaired residual at a place where another image also has one (seen_in > 0);
       single    any other unpaired residual: present in one visit only (an asteroid, a flare, an
                 artefact), or a change seen once.
-    For minus_mean images (visit_a = -1) no dipoles are formed (no single earlier visit)."""
+    For minus_mean images (visit_a = -1) "visit a" is the mean of the other visits, dated at their
+    mean date; images whose two dates are less than MIN_BASELINE_YR apart give no movers."""
     k = cut_table[cut_table["cut"] == ""]
     out = []
     for label in sorted(set(k["pair"]), key=lambda p: list(k["pair"]).index(p)):
         s = k[k["pair"] == label]
         a, b = int(s["visit_a"][0]), int(s["visit_b"][0])
         used = set()
-        if a >= 0:
-            years = _years(epochs[a]["mjd"], epochs[b]["mjd"])
+        ep_a = epochs[a] if a >= 0 else {"image": _mean_of_others(epochs, b),
+                                         "mjd": float(np.mean([e["mjd"] for i, e in enumerate(epochs) if i != b]))}
+        years = abs(_years(ep_a["mjd"], epochs[b]["mjd"]))
+        if years >= MIN_BASELINE_YR:
             max_sep = max_pm * years / pixscale_arcsec + 2 * PSF_FWHM_PX
             # saturated movers: all residuals of one moving core -> one candidate
             sat = [i for i in range(len(s)) if s["saturated"][i]]
@@ -468,8 +481,9 @@ def classify(cut_table, epochs, max_pm=MAX_PM_ARCSEC_YR, pixscale_arcsec=PIXSCAL
                 i0 = max(idx, key=lambda i: s["significance"][i])
                 xa, ya, xb, yb = (float(s[c][i0]) for c in ("sat_xa", "sat_ya", "sat_xb", "sat_yb"))
                 shift = float(np.hypot(xb - xa, yb - ya) * pixscale_arcsec)
-                out.append(_candidate(s, i0, epochs, "mover", xb, yb, shift, shift / years,
-                                      float(np.degrees(np.arctan2(-(xb - xa), yb - ya)) % 360), len(idx)))
+                sgn = 1 if epochs[b]["mjd"] >= ep_a["mjd"] else -1          # minus_mean of an early visit
+                pa = float(np.degrees(np.arctan2(-sgn * (xb - xa), sgn * (yb - ya))) % 360)
+                out.append(_candidate(s, i0, epochs, "mover", xb, yb, shift, shift / years, pa, len(idx)))
                 used |= set(idx)
             pos = sorted([i for i in range(len(s)) if s["sign"][i] > 0 and i not in used],
                          key=lambda i: (-s["significance"][i], i))
@@ -486,7 +500,7 @@ def classify(cut_table, epochs, max_pm=MAX_PM_ARCSEC_YR, pixscale_arcsec=PIXSCAL
                 best = None
                 for d, j in sorted(options):              # nearest first; the motion must be plausible too
                     mx, my = (s["x"][i] + s["x"][j]) / 2, (s["y"][i] + s["y"][j]) / 2
-                    meas = motion(epochs[a], epochs[b], mx, my, d / 2 + 2 * PSF_FWHM_PX, pixscale_arcsec)
+                    meas = motion(ep_a, epochs[b], mx, my, d / 2 + 2 * PSF_FWHM_PX, pixscale_arcsec)
                     if np.isfinite(meas[5]) and meas[5] <= max_pm:
                         best, (xa, ya, xb, yb, shift, pm, pa) = j, meas
                         break
@@ -533,7 +547,9 @@ def _epoch_of(c, epochs):
 def crossmatch(cands, epochs, gaia=True, wise=True, asteroids=True, radius_deg=0.15,
                match_arcsec=MATCH_ARCSEC, progress=None):
     """Candidates (classify) -> (same table with catalogue columns and a label, notes).
-    Each candidate is matched at the date of the visit its position refers to (_epoch_of):
+    Each candidate is matched at the date of the visit its position refers to (_epoch_of), to the
+    source _best_matches picks (several within match_arcsec: the one with the agreeing motion for a
+    mover, else the brightest):
       Gaia DR3 (spherex.gaia, propagated with its proper motion), CatWISE2020 (spherex.wise,
       propagated with its motion), SkyBoT (spherex.asteroids) at the first and the last frame of the
       visit, a candidate within ASTEROID_MATCH_ARCSEC of the straight path between the two.
@@ -593,8 +609,8 @@ def crossmatch(cands, epochs, gaia=True, wise=True, asteroids=True, radius_deg=0
                     notes["chance_match"][name] = float(1 - np.exp(-density * np.pi * match_arcsec ** 2))
                 if len(stars):
                     cat = SkyCoord(np.asarray(stars["ra_t"]) * u.deg, np.asarray(stars["dec_t"]) * u.deg)
-                    j, sep, _ = here.match_to_catalog_sky(cat)
-                    for k, jj, ss in zip(idx, j, sep.arcsec):
+                    j, sep = _best_matches(t, idx, here, cat, stars, name, match_arcsec)
+                    for k, jj, ss in zip(idx, j, sep):
                         if name == "gaia":
                             cols["gaia_sep_arcsec"][k] = ss
                             cols["gaia_source_id"][k] = str(stars["source_id"][jj])
@@ -672,6 +688,35 @@ def crossmatch(cands, epochs, gaia=True, wise=True, asteroids=True, radius_deg=0
     t["verdict"] = verdicts
     notes["labels"] = {lab: labels.count(lab) for lab in LABELS}
     return t, notes
+
+
+def _best_matches(t, idx, here, cat, stars, name, match_arcsec):
+    """For candidates idx (positions `here`) -> (catalogue row, separation arcsec) each. Among the
+    catalogue sources within match_arcsec: for a mover matched against Gaia, the one whose catalogue
+    motion is closest to the implied one; otherwise the brightest (G for Gaia, W1 for CatWISE) - a
+    G = 8 star, not a G = 21 one 1.6" away, is what SPHEREx sees there. With none within
+    match_arcsec: the nearest (reported, but no match)."""
+    import astropy.units as u
+    j, sep, _ = here.match_to_catalog_sky(cat)
+    j, sep = np.array(j), np.array(sep.arcsec)
+    near_c, near_s, d2, _ = cat.search_around_sky(here, match_arcsec * u.arcsec)
+    mag_col = "phot_g_mean_mag" if name == "gaia" else "w1mpro"
+    mag = (np.nan_to_num(np.asarray(stars[mag_col], float), nan=99.0) if mag_col in stars.colnames
+           else np.zeros(len(stars)))
+    pm = np.asarray(stars["pm_total"], float) / 1000 if "pm_total" in stars.colnames else np.zeros(len(stars))
+    for n in range(len(here)):
+        rows = near_s[near_c == n]
+        if len(rows) < 2:
+            continue
+        seps = d2[near_c == n].arcsec
+        k = idx[n]
+        implied = float(t["pm_arcsec_yr"][k])
+        if name == "gaia" and t["type"][k] == "mover" and np.isfinite(implied):
+            order = np.lexsort((seps, np.abs(np.nan_to_num(pm[rows], nan=0.0) - implied)))
+        else:
+            order = np.lexsort((seps, mag[rows]))
+        j[n], sep[n] = rows[order[0]], seps[order[0]]
+    return j, sep
 
 
 def _sep_to_segment(c, p0, p1):

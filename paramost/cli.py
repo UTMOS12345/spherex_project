@@ -202,7 +202,7 @@ def main(argv=None):
     srch.add_argument("--method", choices=["pairs", "minus_mean"], default="pairs")
     srch.add_argument("--pairs", choices=["consecutive", "all"], default="consecutive")
     srch.add_argument("--no-catalogues", action="store_true", help="skip Gaia DR3 and CatWISE2020")
-    srch.add_argument("--no-asteroids", action="store_true", help="skip SkyBoT (slow, ~15-60 s per visit)")
+    srch.add_argument("--no-asteroids", action="store_true", help="skip SkyBoT (slow: seconds to a minute per visit)")
     srch.add_argument("--offline", dest="search_offline", action="store_true",
                       help="only images already downloaded")
     srch.add_argument("--csv", help="also write the table to this CSV file")

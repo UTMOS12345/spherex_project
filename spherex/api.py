@@ -1072,7 +1072,7 @@ def find_movers(text, fov=10.0, detector="D2", wl=None, days=60, clip=True, nsig
     Settings: fov in arcmin (1-10), detector or wl (as epochs), days (time step), clip (sigma-
     clipped stacks; False keeps fast movers and flares but also single-frame defects), nsigma
     (detection threshold), method ('pairs' or 'minus_mean'), pairs ('consecutive' or 'all'),
-    catalogues (Gaia DR3 + CatWISE2020), asteroids (SkyBoT, slow: ~15-60 s per visit),
+    catalogues (Gaia DR3 + CatWISE2020), asteroids (SkyBoT, slow: seconds to a minute per visit),
     keep_rejected (True: also the residuals the cuts removed, with their cut, as table.meta['rejected']).
     Needs at least 2 pictures. progress: the stacking stages (if not in memory), then 'measuring'
     once per difference image, then 'searching the archive' once per catalogue and visit."""
