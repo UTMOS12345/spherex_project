@@ -253,3 +253,16 @@ def test_match_prefers_the_bright_or_comoving_source(monkeypatch):
     t, _ = search.crossmatch(c, eps)
     got = dict(zip(t["type"], t["gaia_source_id"]))
     assert got["mover"] == "bright-mover" and got[s["type"]] == "bright"
+
+
+def test_saturated_core_cannot_move_between_pictures_days_apart():
+    mover = lambda i: gauss(60 + 1.5 * i, 60, 50.0, 2.5)         # "moves" 1.5 px between two pictures 5 d apart
+    eps = visits([mover], n_visits=2, step_days=5.0)
+    sat = []
+    for i in range(2):
+        m = np.zeros((N, N), bool)
+        m[57:64, 57 + i:64 + i] = True
+        sat.append(m)
+    t, _ = search.apply_cuts(search.find_residuals(eps), eps, sat)
+    near = t[np.hypot(np.asarray(t["x"]) - 61, np.asarray(t["y"]) - 60) < 6]
+    assert len(near) and set(near["cut"]) == {"saturated star wings"} and not near["saturated"].any()

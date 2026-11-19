@@ -293,8 +293,9 @@ def apply_cuts(residuals, epochs, sat_maps=None, min_frames=MIN_FRAMES, edge_px=
                  'low coverage': fewer than min_frames frames under it in either visit (few-frames
                      visits fail everywhere: their stacks cannot reject a bad frame);
                  'edge': within edge_px of the area both visits cover with min_frames frames;
-                 'saturated star wings': within r_ring of a saturated core that did not move, or
-                     in the wings (beyond r_core + shift + 2 px) of one that moved;
+                 'saturated star wings': within r_ring of a saturated core that did not move (or
+                     whose two pictures are less than MIN_BASELINE_YR apart), or in the wings
+                     (beyond r_core + shift + 2 px) of one that moved;
                  'small change': |peak| below min_change x the brightest pixel within 2 px in either
                      stack (see MIN_CHANGE);
       change     that ratio, |peak| / brightest stack pixel nearby;
@@ -338,6 +339,11 @@ def apply_cuts(residuals, epochs, sat_maps=None, min_frames=MIN_FRAMES, edge_px=
         # residual image subtracted), so a saturated star's centroid shift is measured against it
         img_a = epochs[a]["image"] if a >= 0 else _mean_of_others(epochs, b)
         stars = saturated_stars(sat_a, sat_b, img_a, epochs[b]["image"]) if sat_a is not None else []
+        # A saturated core can only have moved when the two pictures are far enough apart in time:
+        # between two halves of one visit Barnard's Star's filled-in core "moves" > 0.5 px by noise.
+        mjd_a = epochs[a]["mjd"] if a >= 0 else np.mean([e["mjd"] for i, e in enumerate(epochs) if i != b])
+        if abs(epochs[b]["mjd"] - mjd_a) / 365.25 < MIN_BASELINE_YR:
+            stars = [dict(st, moving=False) for st in stars]
         ny, nx = cov.shape
         stacks = [epochs[b]["image"]] + ([epochs[a]["image"]] if a >= 0 else
                                          [e["image"] for j, e in enumerate(epochs) if j != b])
