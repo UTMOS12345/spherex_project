@@ -805,8 +805,9 @@ def save_thumbnails(cands, epochs, out_dir, half_px=15):
             ax.set_title(title, fontsize=8)
             ax.set_xticks([]); ax.set_yticks([])
         pm = f", {c['pm_arcsec_yr']:.1f}\"/yr" if np.isfinite(c["pm_arcsec_yr"]) else ""
-        fig.suptitle(f"#{k}  {c['type']}  {c['label'] if 'label' in c.colnames else ''}  "
-                     f"{c['peak_to_noise']:.0f}x noise{pm}  pair {c['pair']}", fontsize=9)
+        score = f"  {c['peak_to_noise']:.0f}x noise" if np.isfinite(c["peak_to_noise"]) else ""
+        fig.suptitle(f"#{k}  {c['type']}  {c['label'] if 'label' in c.colnames else ''}"
+                     f"{score}{pm}  pair {c['pair']}", fontsize=9)
         fig.tight_layout()
         name = f"{k:03d}_{c['type']}_{(c['label'] if 'label' in c.colnames else 'unlabelled').replace(' ', '-')}.png"
         path = os.path.join(out_dir, name)

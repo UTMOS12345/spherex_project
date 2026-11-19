@@ -6,8 +6,10 @@
   `paramost search "<target>" --fov 10 --detector D2` list residuals between visits that survive
   artefact cuts (coverage, edges, saturated-star wings, small changes), classified as mover /
   variable / single and checked against Gaia DR3, CatWISE2020 and SkyBoT. Candidates are not
-  detections. On the Barnard's Star field it finds Barnard's Star first in every detector, at
-  9.3-10.6"/yr (catalogue 10.39); see docs/search-validation.md for what it does not show.
+  detections. Validated blind on the five challenge fields (docs/search-validation.md): it finds the
+  bright fast movers (Barnard's Star 10.4"/yr, Epsilon Indi B 4.7-5.5"/yr, first in every pair), not
+  the faint WISE 0855 and not the changes of the saturated RW Aur and R Draconis; with nothing
+  changing, 1.8 false candidates per visit pair survive (0.3 unexplained).
 - **Sky viewer works again during the CDS outage:** since about 2026-11-09 the CDS survey server
   (alasky) is down, which left the Aladin panel grey with no message. The panel now loads WISE,
   2MASS and DSS colour images from ESA, falls back to IRSA when no tile arrives within 10 s, and
