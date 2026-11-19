@@ -297,7 +297,9 @@ def apply_cuts(residuals, epochs, sat_maps=None, min_frames=MIN_FRAMES, edge_px=
                      whose two pictures are less than MIN_BASELINE_YR apart), or in the wings
                      (beyond r_core + shift + 2 px) of one that moved;
                  'small change': |peak| below min_change x the brightest pixel within 2 px in either
-                     stack (see MIN_CHANGE);
+                     stack (see MIN_CHANGE), unless a kept residual of the other sign lies within
+                     dipole range (then rescued_lobe is True and it is kept: a dipole is judged
+                     as a whole);
       change     that ratio, |peak| / brightest stack pixel nearby;
       coverage   frames under it (the smaller of the two visits, smallest of the 3x3 around it);
       saturated  inside the core of a saturated star that moved between the visits (kept);
@@ -320,6 +322,7 @@ def apply_cuts(residuals, epochs, sat_maps=None, min_frames=MIN_FRAMES, edge_px=
     sat_pos = np.full((n, 4), np.nan)                     # moving saturated star: xa, ya, xb, yb
     boundary = np.zeros(n, bool)
     change = np.full(n, np.nan)
+    rescued = np.zeros(n, bool)
     few_pairs = []
     good_cache = {}
     for label in sorted(set(t["pair"]), key=lambda p: list(t["pair"]).index(p)):
@@ -375,7 +378,28 @@ def apply_cuts(residuals, epochs, sat_maps=None, min_frames=MIN_FRAMES, edge_px=
                 break
             if not cut[i] and not saturated[i] and change[i] < min_change:
                 cut[i] = "small change"
+        # A dipole is judged as a whole: a lobe cut only for "small change" comes back when a kept
+        # lobe of the other sign lies within dipole range (classify's limits). The two lobes of a
+        # mover are often uneven (Epsilon Indi B: fluxes 61 and 21), and the weaker one alone may
+        # fall under min_change, which left a single where there is a dipole.
+        if a >= 0:
+            years = abs(epochs[b]["mjd"] - epochs[a]["mjd"]) / 365.25
+            max_sep = MAX_PM_ARCSEC_YR * years / PIXSCALE_ARCSEC + 2 * PSF_FWHM_PX
+            kept_here = [j for j in rows if cut[j] == "" and not saturated[j]]
+            for i in rows:
+                if cut[i] != "small change":
+                    continue
+                for j in kept_here:
+                    if np.sign(t["sign"][j]) == np.sign(t["sign"][i]):
+                        continue
+                    d = np.hypot(float(t["x"][i] - t["x"][j]), float(t["y"][i] - t["y"][j]))
+                    ratio = abs(float(t["flux"][i]) / float(t["flux"][j])) if t["flux"][j] else np.inf
+                    if d <= max_sep and 1 / LOBE_RATIO <= ratio <= LOBE_RATIO:
+                        cut[i] = ""
+                        rescued[i] = True
+                        break
     t["cut"] = cut
+    t["rescued_lobe"] = rescued
     t["change"] = change
     t["coverage"] = cover
     t["saturated"] = saturated
@@ -402,7 +426,7 @@ def apply_cuts(residuals, epochs, sat_maps=None, min_frames=MIN_FRAMES, edge_px=
     t["seen_in"] = seen
     t["seen_possible"] = possible
     summary = {"residuals": n, **{c: int(sum(x == c for x in cut)) for c in CUTS},
-               "kept": int(kept.sum()), "few_frames_pairs": few_pairs,
+               "kept": int(kept.sum()), "rescued_lobes": int(rescued.sum()), "few_frames_pairs": few_pairs,
                "saturation_cut": sat_maps is not None,
                "release_boundary_kept": int((boundary & kept).sum()),
                "seen_in_another_kept": int(((seen > 0) & kept).sum()),
@@ -471,7 +495,8 @@ def classify(cut_table, epochs, max_pm=MAX_PM_ARCSEC_YR, pixscale_arcsec=PIXSCAL
                 y = its centroid in visit b; shift and pm from the centroid shift (motion());
       variable  an unpaired residual at a place where another image also has one (seen_in > 0);
       single    any other unpaired residual: present in one visit only (an asteroid, a flare, an
-                artefact), or a change seen once.
+                artefact), or a change seen once. A lobe apply_cuts rescued (rescued_lobe) that ends
+                up in no dipole is dropped: on its own it is a "small change".
     For minus_mean images (visit_a = -1) "visit a" is the mean of the other visits, dated at their
     mean date; images whose two dates are less than MIN_BASELINE_YR apart give no movers."""
     k = cut_table[cut_table["cut"] == ""]
@@ -524,8 +549,9 @@ def classify(cut_table, epochs, max_pm=MAX_PM_ARCSEC_YR, pixscale_arcsec=PIXSCAL
                 out.append(_candidate(s, i, epochs, "mover", cx, cy, shift, pm, pa, 2,
                                       peak_to_noise=max(s["peak_to_noise"][i], s["peak_to_noise"][best])))
                 used |= {i, best}
+        rescued = s["rescued_lobe"] if "rescued_lobe" in s.colnames else np.zeros(len(s), bool)
         for i in range(len(s)):
-            if i in used:
+            if i in used or rescued[i]:            # a rescued lobe only counts inside a dipole
                 continue
             kind = "variable" if s["seen_in"][i] > 0 else "single"
             out.append(_candidate(s, i, epochs, kind, float(s["x"][i]), float(s["y"][i]), np.nan, np.nan, np.nan, 1))

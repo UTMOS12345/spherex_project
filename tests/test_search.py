@@ -266,3 +266,27 @@ def test_saturated_core_cannot_move_between_pictures_days_apart():
     t, _ = search.apply_cuts(search.find_residuals(eps), eps, sat)
     near = t[np.hypot(np.asarray(t["x"]) - 61, np.asarray(t["y"]) - 60) < 6]
     assert len(near) and set(near["cut"]) == {"saturated star wings"} and not near["saturated"].any()
+
+
+def test_weak_lobe_of_a_dipole_is_rescued():
+    # a mover whose old-position lobe sits beside a bright steady star: that lobe alone is a "small
+    # change" next to the star, but together with the other lobe it is a dipole
+    def src(i):
+        return (gauss(60 - 1.5 * i, 60, 4.0) + gauss(63.0, 60, 20.0)
+                + gauss(30, 30, 10.0 * (1 + 0.05 * i)))
+    eps = visits([src], n_visits=2)
+    t, summary = search.apply_cuts(search.find_residuals(eps), eps)
+    lobes = t[np.hypot(np.asarray(t["x"]) - 59.25, np.asarray(t["y"]) - 60) < 5]
+    assert set(lobes["sign"]) == {1, -1} and set(lobes["cut"]) == {""}
+    assert lobes["rescued_lobe"].sum() == 1 and summary["rescued_lobes"] == 1
+    assert _cut_of(t, 30, 30) == "small change"                     # a lone small change stays cut
+    assert "mover" in set(search.classify(t, eps)["type"])
+
+
+def test_rescued_lobe_left_unpaired_is_dropped():
+    eps = visits([lambda i: gauss(60 - 1.5 * i, 60, 4.0) + gauss(63.0, 60, 20.0)], n_visits=2)
+    t, _ = search.apply_cuts(search.find_residuals(eps), eps)
+    t["rescued_lobe"][:] = t["sign"] < 0                     # pretend the positive partner is elsewhere
+    t["cut"] = np.where(t["sign"] > 0, "edge", np.asarray(t["cut"], dtype="U20"))
+    c = search.classify(t, eps)
+    assert len(c) == 0
