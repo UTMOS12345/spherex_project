@@ -138,7 +138,7 @@ def search(a):
             last[0] = line
     try:
         t = api.find_movers(a.target, fov=a.fov, detector=None if a.wl and not a.detector else (a.detector or "D2"),
-                            wl=a.wl, days=a.days, clip=not a.no_clip, nsigma=a.sigma, method=a.method,
+                            wl=a.wl, days=a.days, clip=not a.no_clip, threshold=a.threshold, method=a.method,
                             pairs=a.pairs, catalogues=not a.no_catalogues, asteroids=not a.no_asteroids,
                             progress=progress)
     except ValueError as e:
@@ -147,20 +147,21 @@ def search(a):
     print(f"\r{' ' * 74}\r", end="", file=sys.stderr)
     s, cuts, cat = t.meta["settings"], t.meta["cuts"], t.meta["catalogues"]
     print(f"{s['text']}: {s['detector']}, {s['fov']:g}' field, {s['visits']} visits ({', '.join(s['dates'])}; "
-          f"{', '.join(s['releases'])}), clip={'on' if s['clip'] else 'off'}, {s['nsigma']:g} sigma, {s['method']}")
+          f"{', '.join(s['releases'])}), clip={'on' if s['clip'] else 'off'}, threshold {s['threshold']:g}x noise, {s['method']}")
     removed = ", ".join(f"{k} {cuts[k]}" for k in ("low coverage", "edge", "saturated star wings", "small change"))
     print(f"residuals {cuts['residuals']}; removed: {removed}; kept {cuts['kept']}"
           + ("" if cuts["saturation_cut"] else " (no saturation cut: images not on disk)"))
     if cat.get("failed"):
         print("catalogues that failed: " + "; ".join(cat["failed"]))
-    show = t["rank", "pair", "type", "ra", "dec", "significance", "pm_arcsec_yr", "label", "nearest_sep_arcsec"]
-    for col, fmt in (("ra", ".5f"), ("dec", "+.5f"), ("significance", ".0f"), ("pm_arcsec_yr", ".2f"),
+    show = t["rank", "pair", "type", "ra", "dec", "peak_to_noise", "pm_arcsec_yr", "label", "nearest_sep_arcsec"]
+    for col, fmt in (("ra", ".5f"), ("dec", "+.5f"), ("peak_to_noise", ".0f"), ("pm_arcsec_yr", ".2f"),
                      ("nearest_sep_arcsec", ".1f")):
         show[col].format = fmt
     show.pprint(max_lines=-1, max_width=-1)
     counts = ", ".join(f"{k}: {v}" for k, v in cat.get("labels", {}).items())
     print(f"{len(t)} candidates ({counts}).")
     print(t.meta["note"])
+    print(api.PEAK_TO_NOISE_NOTE)
     if a.csv:
         out = t.copy()
         out.meta = {}
@@ -198,7 +199,8 @@ def main(argv=None):
     srch.add_argument("--days", type=float, default=60, help="time step: 60 per visit (default), 30, 7")
     srch.add_argument("--no-clip", action="store_true", help="plain average stacks: keeps fast movers and "
                       "flares, but also single-frame defects")
-    srch.add_argument("--sigma", type=float, default=5.0, help="detection threshold in noise sigmas (default 5)")
+    srch.add_argument("--threshold", type=float, default=5.0, help="detection threshold in units of the "
+                      "background noise of the difference image (default 5; not a significance)")
     srch.add_argument("--method", choices=["pairs", "minus_mean"], default="pairs")
     srch.add_argument("--pairs", choices=["consecutive", "all"], default="consecutive")
     srch.add_argument("--no-catalogues", action="store_true", help="skip Gaia DR3 and CatWISE2020")

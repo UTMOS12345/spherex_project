@@ -1044,24 +1044,28 @@ def flags_figure(text, detector="D2", visit=-1, frame=0):
 
 
 # ------------------------------------------------------------------ 7. blind search
-SEARCH_COLUMNS = ["rank", "pair", "date_a", "date_b", "type", "ra", "dec", "significance", "pm_arcsec_yr",
+SEARCH_COLUMNS = ["rank", "pair", "date_a", "date_b", "type", "ra", "dec", "peak_to_noise", "pm_arcsec_yr",
                   "pm_pa_deg", "label", "nearest_match", "nearest_sep_arcsec", "chance_match", "change",
                   "saturated", "release_boundary", "seen_in", "seen_possible", "verdict"]
+PEAK_TO_NOISE_NOTE = ("peak_to_noise: the residual's peak divided by the scatter of the blank parts of "
+                      "the difference image. A ranking score, not a significance: stars that did not change "
+                      "reach tens to hundreds.")
 SEARCH_NOTE = ("A candidate is a residual in the difference between two visits that survived the "
                "artefact cuts. It is not a detection: 'unexplained' residuals are mostly artefacts, "
                "and a 'known' label says only that a catalogue source lies close to it.")
 
 
-def find_movers(text, fov=10.0, detector="D2", wl=None, days=60, clip=True, nsigma=5.0, method="pairs",
+def find_movers(text, fov=10.0, detector="D2", wl=None, days=60, clip=True, threshold=5.0, method="pairs",
                 pairs="consecutive", catalogues=True, asteroids=True, keep_rejected=False, progress=None,
                 _with_epochs=False):
     """Blind search of the field around a target or position for moving and changing sources,
     without using where the target is -> astropy Table, one row per candidate, ranked by
-    significance (highest first). Columns (SEARCH_COLUMNS):
+    peak_to_noise (highest first). Columns (SEARCH_COLUMNS):
       rank, pair ('0-1' = visits 0 and 1 of epochs(text, detector, fov, days=days)), date_a, date_b,
       type ('mover' = a dipole or a saturated star that moved, 'variable' = a change at one place
       in more than one pair, 'single' = a change seen once), ra, dec (in the later visit),
-      significance (peak of the smoothed residual in noise sigmas), pm_arcsec_yr and pm_pa_deg
+      peak_to_noise (ranking score, not a significance: the smoothed residual's peak divided by the
+      scatter of the blank parts of the difference image; see search.detect_residuals), pm_arcsec_yr and pm_pa_deg
       (movers: implied motion from the centroid shift and its direction east of north), label
       ('known star', 'known infrared source', 'known asteroid', 'unexplained'), nearest_match and
       nearest_sep_arcsec (nearest Gaia DR3 or CatWISE2020 source, at the visit's date),
@@ -1070,8 +1074,8 @@ def find_movers(text, fov=10.0, detector="D2", wl=None, days=60, clip=True, nsig
     table.meta: 'note' (SEARCH_NOTE), 'cuts' (how many residuals each artefact cut removed),
     'catalogues' (asked, failed, chance-match probabilities, counts per label), 'settings'.
     Settings: fov in arcmin (1-10), detector or wl (as epochs), days (time step), clip (sigma-
-    clipped stacks; False keeps fast movers and flares but also single-frame defects), nsigma
-    (detection threshold), method ('pairs' or 'minus_mean'), pairs ('consecutive' or 'all'),
+    clipped stacks; False keeps fast movers and flares but also single-frame defects), threshold
+    (detection threshold in units of that background noise), method ('pairs' or 'minus_mean'), pairs ('consecutive' or 'all'),
     catalogues (Gaia DR3 + CatWISE2020), asteroids (SkyBoT, slow: seconds to a minute per visit),
     keep_rejected (True: also the residuals the cuts removed, with their cut, as table.meta['rejected']).
     Needs at least 2 pictures. progress: the stacking stages (if not in memory), then 'measuring'
@@ -1087,7 +1091,7 @@ def find_movers(text, fov=10.0, detector="D2", wl=None, days=60, clip=True, nsig
                          "with these settings.")
     images = search.residual_images(eps, method, pairs)
     report(progress, MEASURING, 0, len(images) + 1)
-    residuals = search.find_residuals(eps, nsigma, method, pairs)
+    residuals = search.find_residuals(eps, threshold, method, pairs)
     report(progress, MEASURING, len(images), len(images) + 1)
     dets = str(eps[0]["detectors_used"]).split("+") if eps[0].get("detectors_used") else parse_detectors(detector)
     size_deg = round(max(0.1, float(fov) / 60 * 1.5), 3)
@@ -1102,7 +1106,7 @@ def find_movers(text, fov=10.0, detector="D2", wl=None, days=60, clip=True, nsig
     cands, notes = search.crossmatch(cands, eps, gaia=catalogues, wise=catalogues, asteroids=asteroids,
                                      progress=progress)
     report(progress, DRAWING, 0, 1)
-    order = sorted(range(len(cands)), key=lambda i: (-float(cands["significance"][i]), str(cands["pair"][i]),
+    order = sorted(range(len(cands)), key=lambda i: (-float(cands["peak_to_noise"][i]), str(cands["pair"][i]),
                                                      round(float(cands["x"][i]), 6), round(float(cands["y"][i]), 6)))
     cands = cands[order] if len(cands) else cands
     cands["rank"] = np.arange(1, len(cands) + 1)
@@ -1120,9 +1124,9 @@ def find_movers(text, fov=10.0, detector="D2", wl=None, days=60, clip=True, nsig
     cands["nearest_sep_arcsec"] = np.where(use_g, g, w)
     cols = SEARCH_COLUMNS + [c for c in cands.colnames if c not in SEARCH_COLUMNS]
     out = cands[cols]
-    out.meta = {"note": SEARCH_NOTE, "cuts": summary, "catalogues": notes,
+    out.meta = {"note": SEARCH_NOTE, "peak_to_noise": PEAK_TO_NOISE_NOTE, "cuts": summary, "catalogues": notes,
                 "settings": dict(text=text, fov=float(fov), detector=eps[0]["detector"], days=days, clip=bool(clip),
-                                 nsigma=float(nsigma), method=method, pairs=pairs, visits=len(eps),
+                                 threshold=float(threshold), method=method, pairs=pairs, visits=len(eps),
                                  dates=[e["date"] for e in eps], releases=[e.get("releases", "") for e in eps],
                                  saturation_cut=sat is not None)}
     if keep_rejected:

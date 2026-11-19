@@ -125,7 +125,7 @@ are not affected.
 | Spectrum | `api.spectrum_figure(text, visit=-1, all_visits=False, progress=None)` | (figure, table) |
 | Flags | `api.flags_figure(text, detector="D2", visit=-1, frame=0)` | (figure, table) |
 | Molecule markers | `api.molecule_bands()` | list of dicts (plain data, no plotting); see "Molecule bands" |
-| Blind search | `api.find_movers(text, fov=10.0, detector="D2", wl=None, days=60, clip=True, nsigma=5.0, method="pairs", pairs="consecutive", catalogues=True, asteroids=True, keep_rejected=False, progress=None)` | table of candidates (not detections); see "Blind search" |
+| Blind search | `api.find_movers(text, fov=10.0, detector="D2", wl=None, days=60, clip=True, threshold=5.0, method="pairs", pairs="consecutive", catalogues=True, asteroids=True, keep_rejected=False, progress=None)` | table of candidates (not detections); see "Blind search" |
 | Search thumbnails | `api.search_thumbnails(table, out_dir)` | list of PNG paths, one per row of `find_movers` (earlier visit, later visit, difference) |
 
 Show a figure with `st.pyplot(fig)` and then `plt.close(fig)`; a table with
@@ -383,7 +383,7 @@ partly cached target is too short and grows as real downloads begin.
 
 `api.find_movers(text, fov=10, detector="D2")` searches the whole field around a target or
 position for things that moved or changed between visits, **without using where the target
-is**. It is also `paramost search "<target or coordinates>" --fov 10 --detector D2 [--csv
+is**. It is also `paramost search "<target or coordinates>" --fov 10 --detector D2 [--threshold 5] [--csv
 out.csv] [--thumbnails dir/] [--offline] [--no-clip] [--no-asteroids]`. The method is in
 `spherex/search.py`; how well it works on real data is in
 [search-validation.md](search-validation.md).
@@ -396,7 +396,16 @@ a catalogue source lies within 3″ (in crowded fields that can be chance: `chan
    the difference later minus earlier (`spherex.diff.difference`, as `picture(kind="pair")`), or with
    `method="minus_mean"` each visit minus the mean of the others, is smoothed with a 6″ Gaussian. Its
    noise is the sigma-clipped standard deviation of the smoothed difference itself, and positive and
-   negative areas of at least 5 pixels above `nsigma` (default 5) are residuals.
+   negative areas of at least 5 pixels above `threshold` x that noise (default 5) are residuals.
+   **`peak_to_noise`** (the ranking column) is the smoothed residual's peak divided by that noise. The
+   clipping drops the residuals of stars, so the noise is the pixel-to-pixel scatter of the blank parts
+   of the difference (sky and detector noise left after stacking and resampling). It is a ranking
+   score, **not a significance**: it leaves out the source's own noise and how differently a star
+   looks in two visits, which dominate for anything brighter than the sky, and the difference is far
+   from Gaussian (Barnard's Star field: 11% of pixels beyond 5x the noise; Gaussian noise: 6e-7).
+   Stars that did not change reach 44 (median) to 774 there; Barnard's Star 83 000. A threshold of 5
+   is therefore not a 5-sigma false-alarm rate: the false-positive control in
+   [search-validation.md](search-validation.md) gives the real rate.
 2. **Artefact cuts**, in this order (`table.meta["cuts"]` counts what each removed):
    `low coverage` (fewer than 4 frames under it in either visit), `edge` (within 5 pixels of the
    well-covered area), `saturated star wings` (within 2.5 r + 4 px of a saturated core, from the

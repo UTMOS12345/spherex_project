@@ -30,12 +30,12 @@ from photutils.utils.exceptions import NoDetectionsWarning
 from .combine import minus_mean
 from .diff import difference
 
-DETECT_SIGMA = 5.0      # a residual must peak this many noise sigmas above zero (smoothed image)
+DETECT_THRESHOLD = 5.0  # a residual must peak this many times the background noise above zero (smoothed)
 SMOOTH_FWHM_PX = 2.0    # detection filter: Gaussian of this FWHM in grid pixels (6" at 3"/px)
 MIN_AREA_PX = 5         # ... and cover at least this many connected grid pixels above threshold
 
 COLUMNS = ["pair", "visit_a", "visit_b", "date_a", "date_b", "mjd_a", "mjd_b", "sign", "x", "y",
-           "ra", "dec", "significance", "peak", "flux", "area_px", "noise"]
+           "ra", "dec", "peak_to_noise", "peak", "flux", "area_px", "noise"]
 DTYPES = {c: float for c in COLUMNS} | {"pair": str, "date_a": str, "date_b": str, "visit_a": int,
                                         "visit_b": int, "sign": int, "area_px": int}
 
@@ -74,14 +74,22 @@ def _centroid(source):
     return float(source.xcentroid), float(source.ycentroid)
 
 
-def detect_residuals(image, valid, nsigma=DETECT_SIGMA, fwhm_px=SMOOTH_FWHM_PX, min_area=MIN_AREA_PX):
+def detect_residuals(image, valid, threshold=DETECT_THRESHOLD, fwhm_px=SMOOTH_FWHM_PX, min_area=MIN_AREA_PX):
     """Positive and negative residuals in one difference image -> list of dicts
-    (sign, x, y, significance, peak, flux, area_px, noise).
-    The image is smoothed with a Gaussian (fwhm_px), the noise is the sigma-clipped std of the
-    smoothed image over the valid pixels, and connected areas of at least min_area pixels above
-    nsigma x noise are residuals - found for the image and for minus the image separately, so a
-    dipole gives one positive and one negative residual. significance = the smoothed peak in
-    noise units; x, y = flux-weighted centroid (grid pixels); peak, flux on the unsmoothed image."""
+    (sign, x, y, peak_to_noise, peak, flux, area_px, noise).
+    The image is smoothed with a Gaussian (fwhm_px). The background noise is the 3-sigma-clipped
+    standard deviation of the smoothed image over the valid pixels: the clipping drops the residuals
+    of stars, so it measures the pixel-to-pixel scatter of the blank parts of the difference (sky and
+    detector noise left after stacking and resampling). Connected areas of at least min_area pixels
+    above threshold x that noise are residuals - found for the image and for minus the image
+    separately, so a dipole gives one positive and one negative residual.
+    peak_to_noise = the smoothed residual's peak / that background noise. It is a ranking score, NOT a
+    significance: it leaves out the source's own noise and the mismatch of a star between visits
+    (point-spread function, calibration), which dominate for anything brighter than the background,
+    and the smoothed difference is far from Gaussian (in the Barnard's Star field 11% of pixels lie
+    beyond 5x the noise, against 6e-7 for Gaussian noise). Stars that did not change reach 44 (median)
+    and up to 774 there; Barnard's Star 83 000. So a threshold of 5 does not mean a 5-sigma false-alarm
+    rate. x, y = flux-weighted centroid (grid pixels); peak, flux on the unsmoothed image."""
     valid = valid & np.isfinite(image)
     data = np.where(valid, image, 0.0)
     smooth = _smooth(data, fwhm_px)
@@ -94,7 +102,7 @@ def detect_residuals(image, valid, nsigma=DETECT_SIGMA, fwhm_px=SMOOTH_FWHM_PX, 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", NoDetectionsWarning)
             # pixel count positional: photutils < 3 calls it npixels, >= 3 n_pixels
-            segm = detect_sources(sign * smooth, nsigma * noise_s, min_area, mask=~valid)
+            segm = detect_sources(sign * smooth, threshold * noise_s, min_area, mask=~valid)
         if segm is None:
             continue
         cat = SourceCatalog(np.where(valid, sign * data, 0.0), segm, convolved_data=sign * smooth,
@@ -102,7 +110,7 @@ def detect_residuals(image, valid, nsigma=DETECT_SIGMA, fwhm_px=SMOOTH_FWHM_PX, 
         for s in cat:
             x, y = _centroid(s)
             out.append({"sign": sign, "x": x, "y": y,
-                        "significance": float(s.max_value / noise_s),
+                        "peak_to_noise": float(s.max_value / noise_s),
                         "peak": float(sign * np.nanmax(np.where(segm.data == s.label, sign * data, -np.inf))),
                         "flux": float(sign * s.segment_flux), "area_px": int(s.area.value),
                         "noise": noise})
@@ -134,10 +142,10 @@ def residual_images(epochs, method="pairs", pairs="consecutive"):
     raise ValueError("method must be 'pairs' or 'minus_mean'.")
 
 
-def find_residuals(epochs, nsigma=DETECT_SIGMA, method="pairs", pairs="consecutive",
+def find_residuals(epochs, threshold=DETECT_THRESHOLD, method="pairs", pairs="consecutive",
                    fwhm_px=SMOOTH_FWHM_PX, min_area=MIN_AREA_PX):
     """Stacked visits of one field (make_epochs) -> Table of residuals (COLUMNS), every image of
-    residual_images() searched with detect_residuals(). Sorted by image, then by significance
+    residual_images() searched with detect_residuals(). Sorted by image, then by peak_to_noise
     (highest first), then position, so the same stacks always give the same table."""
     if len(epochs) < 2:
         raise ValueError("A search needs at least 2 visits.")
@@ -149,8 +157,8 @@ def find_residuals(epochs, nsigma=DETECT_SIGMA, method="pairs", pairs="consecuti
         valid = np.isfinite(img) & (epochs[b]["coverage"] > 0)
         if a >= 0:
             valid &= epochs[a]["coverage"] > 0
-        rows += _rows(detect_residuals(img, valid, nsigma, fwhm_px, min_area), wcs, label, a, b, ep_a, ep_b)
-    rows.sort(key=lambda r: (r["visit_b"], r["visit_a"], -r["significance"], round(r["x"], 6), round(r["y"], 6)))
+        rows += _rows(detect_residuals(img, valid, threshold, fwhm_px, min_area), wcs, label, a, b, ep_a, ep_b)
+    rows.sort(key=lambda r: (r["visit_b"], r["visit_a"], -r["peak_to_noise"], round(r["x"], 6), round(r["y"], 6)))
     if not rows:
         return Table(names=COLUMNS, dtype=[DTYPES[c] for c in COLUMNS])
     return Table(rows=[[r[c] for c in COLUMNS] for r in rows], names=COLUMNS)
@@ -422,7 +430,7 @@ LABELS = {
 }
 
 CANDIDATE_COLUMNS = ["pair", "visit_a", "visit_b", "date_a", "date_b", "type", "ra", "dec", "x", "y",
-                     "significance", "sign", "shift_arcsec", "pm_arcsec_yr", "pm_pa_deg", "change",
+                     "peak_to_noise", "sign", "shift_arcsec", "pm_arcsec_yr", "pm_pa_deg", "change",
                      "saturated", "release_boundary", "seen_in", "seen_possible", "n_residuals"]
 
 
@@ -478,7 +486,7 @@ def classify(cut_table, epochs, max_pm=MAX_PM_ARCSEC_YR, pixscale_arcsec=PIXSCAL
                 groups.setdefault((round(float(s["sat_xb"][i]), 3), round(float(s["sat_yb"][i]), 3)), []).append(i)
             for key in sorted(groups):
                 idx = groups[key]
-                i0 = max(idx, key=lambda i: s["significance"][i])
+                i0 = max(idx, key=lambda i: s["peak_to_noise"][i])
                 xa, ya, xb, yb = (float(s[c][i0]) for c in ("sat_xa", "sat_ya", "sat_xb", "sat_yb"))
                 shift = float(np.hypot(xb - xa, yb - ya) * pixscale_arcsec)
                 sgn = 1 if epochs[b]["mjd"] >= ep_a["mjd"] else -1          # minus_mean of an early visit
@@ -486,7 +494,7 @@ def classify(cut_table, epochs, max_pm=MAX_PM_ARCSEC_YR, pixscale_arcsec=PIXSCAL
                 out.append(_candidate(s, i0, epochs, "mover", xb, yb, shift, shift / years, pa, len(idx)))
                 used |= set(idx)
             pos = sorted([i for i in range(len(s)) if s["sign"][i] > 0 and i not in used],
-                         key=lambda i: (-s["significance"][i], i))
+                         key=lambda i: (-s["peak_to_noise"][i], i))
             neg = [i for i in range(len(s)) if s["sign"][i] < 0 and i not in used]
             for i in pos:
                 options = []
@@ -508,7 +516,7 @@ def classify(cut_table, epochs, max_pm=MAX_PM_ARCSEC_YR, pixscale_arcsec=PIXSCAL
                     continue
                 cx, cy = (xb, yb) if np.isfinite(xb) else (float(s["x"][i]), float(s["y"][i]))
                 out.append(_candidate(s, i, epochs, "mover", cx, cy, shift, pm, pa, 2,
-                                      significance=max(s["significance"][i], s["significance"][best])))
+                                      peak_to_noise=max(s["peak_to_noise"][i], s["peak_to_noise"][best])))
                 used |= {i, best}
         for i in range(len(s)):
             if i in used:
@@ -527,10 +535,10 @@ def classify(cut_table, epochs, max_pm=MAX_PM_ARCSEC_YR, pixscale_arcsec=PIXSCAL
     return t
 
 
-def _candidate(s, i, epochs, kind, x, y, shift, pm, pa, n_res, significance=None):
+def _candidate(s, i, epochs, kind, x, y, shift, pm, pa, n_res, peak_to_noise=None):
     return [s["pair"][i], int(s["visit_a"][i]), int(s["visit_b"][i]), s["date_a"][i], s["date_b"][i], kind,
             np.nan, np.nan, float(x), float(y),
-            float(s["significance"][i] if significance is None else significance),
+            float(s["peak_to_noise"][i] if peak_to_noise is None else peak_to_noise),
             0 if kind == "mover" else int(s["sign"][i]), float(shift), float(pm), float(pa),
             float(s["change"][i]), bool(s["saturated"][i]), bool(s["release_boundary"][i]),
             int(s["seen_in"][i]), int(s["seen_possible"][i]), int(n_res)]
@@ -766,7 +774,7 @@ def save_thumbnails(cands, epochs, out_dir, half_px=15):
             ax.set_xticks([]); ax.set_yticks([])
         pm = f", {c['pm_arcsec_yr']:.1f}\"/yr" if np.isfinite(c["pm_arcsec_yr"]) else ""
         fig.suptitle(f"#{k}  {c['type']}  {c['label'] if 'label' in c.colnames else ''}  "
-                     f"{c['significance']:.0f} sigma{pm}  pair {c['pair']}", fontsize=9)
+                     f"{c['peak_to_noise']:.0f}x noise{pm}  pair {c['pair']}", fontsize=9)
         fig.tight_layout()
         name = f"{k:03d}_{c['type']}_{(c['label'] if 'label' in c.colnames else 'unlabelled').replace(' ', '-')}.png"
         path = os.path.join(out_dir, name)

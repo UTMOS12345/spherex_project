@@ -24,13 +24,13 @@ def test_find_movers_table(field):
     t = api.find_movers("somewhere", catalogues=False, asteroids=False, progress=lambda s, d, n: stages.append(s))
     assert list(t.colnames[:len(api.SEARCH_COLUMNS)]) == api.SEARCH_COLUMNS
     assert list(t["rank"]) == list(range(1, len(t) + 1))
-    assert list(t["significance"]) == sorted(t["significance"], reverse=True)
+    assert list(t["peak_to_noise"]) == sorted(t["peak_to_noise"], reverse=True)
     assert "mover" in set(t["type"]) and set(t["label"]) == {"unexplained"}
     assert "not a detection" in t.meta["note"] and t.meta["cuts"]["saturation_cut"] is False
     assert t.meta["settings"]["visits"] == 3 and "measuring" in stages
     again = api.find_movers("somewhere", catalogues=False, asteroids=False)
     assert all((np.asarray(t[c]) == np.asarray(again[c])).all() for c in t.colnames
-               if t[c].dtype.kind != "f") and np.allclose(t["significance"], again["significance"])
+               if t[c].dtype.kind != "f") and np.allclose(t["peak_to_noise"], again["peak_to_noise"])
 
 
 def test_find_movers_bad_settings(field):

@@ -37,7 +37,7 @@ def test_dipole_found_as_one_positive_and_one_negative():
     assert set(t["sign"]) == {1, -1}
     pos, neg = t[t["sign"] > 0][0], t[t["sign"] < 0][0]
     assert pos["x"] > neg["x"] and abs(pos["y"] - 60) < 1 and abs(neg["y"] - 60) < 1
-    assert pos["significance"] > 50 and pos["pair"] == "0-1"
+    assert pos["peak_to_noise"] > 50 and pos["pair"] == "0-1"
 
 
 def test_noise_only_gives_almost_nothing():
