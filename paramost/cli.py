@@ -6,6 +6,8 @@
     paramost --cache-dir D:\\spherex   use another cache folder (default: the user cache folder)
     paramost cache-info               where the cache is, its size, which targets are in it
     paramost cache-clear frames       delete the frame cache only (downloads are kept)
+    paramost search "Barnard's Star" --fov 10 --detector D2 [--csv out.csv] [--thumbnails dir/]
+                                      blind search for moving and changing sources in the field
     paramost --version
 
 Also `python -m paramost ...` (works from a source checkout without installing).
@@ -119,6 +121,58 @@ def cache_clear(what):
     return 0
 
 
+def search(a):
+    """paramost search: api.find_movers on one field, printed as a table (and optionally written)."""
+    os.environ.setdefault("MPLBACKEND", "Agg")
+    if a.offline:
+        os.environ["SPHEREX_DEMO"] = "1"
+    from spherex import api
+    from spherex.progress import Estimate
+    est = Estimate()
+    last = [""]
+
+    def progress(stage, done, total):
+        line = est.update(stage, done, total)["text"]
+        if line != last[0]:
+            print(f"\r  {line:<70}", end="", file=sys.stderr, flush=True)
+            last[0] = line
+    try:
+        t = api.find_movers(a.target, fov=a.fov, detector=None if a.wl and not a.detector else (a.detector or "D2"),
+                            wl=a.wl, days=a.days, clip=not a.no_clip, threshold=a.threshold, method=a.method,
+                            pairs=a.pairs, catalogues=not a.no_catalogues, asteroids=not a.no_asteroids,
+                            progress=progress)
+    except ValueError as e:
+        print(f"\r{' ' * 74}\r{e}", file=sys.stderr)
+        return 2
+    print(f"\r{' ' * 74}\r", end="", file=sys.stderr)
+    s, cuts, cat = t.meta["settings"], t.meta["cuts"], t.meta["catalogues"]
+    print(f"{s['text']}: {s['detector']}, {s['fov']:g}' field, {s['visits']} visits ({', '.join(s['dates'])}; "
+          f"{', '.join(s['releases'])}), clip={'on' if s['clip'] else 'off'}, threshold {s['threshold']:g}x noise, {s['method']}")
+    removed = ", ".join(f"{k} {cuts[k]}" for k in ("low coverage", "edge", "saturated star wings", "small change"))
+    print(f"residuals {cuts['residuals']}; removed: {removed}; kept {cuts['kept']}"
+          + ("" if cuts["saturation_cut"] else " (no saturation cut: images not on disk)"))
+    if cat.get("failed"):
+        print("catalogues that failed: " + "; ".join(cat["failed"]))
+    show = t["rank", "pair", "type", "ra", "dec", "peak_to_noise", "pm_arcsec_yr", "label", "nearest_sep_arcsec"]
+    for col, fmt in (("ra", ".5f"), ("dec", "+.5f"), ("peak_to_noise", ".0f"), ("pm_arcsec_yr", ".2f"),
+                     ("nearest_sep_arcsec", ".1f")):
+        show[col].format = fmt
+    show.pprint(max_lines=-1, max_width=-1)
+    counts = ", ".join(f"{k}: {v}" for k, v in cat.get("labels", {}).items())
+    print(f"{len(t)} candidates ({counts}).")
+    print(t.meta["note"])
+    print(api.PEAK_TO_NOISE_NOTE)
+    if a.csv:
+        out = t.copy()
+        out.meta = {}
+        out.write(a.csv, format="ascii.csv", overwrite=True)
+        print(f"table: {a.csv}")
+    if a.thumbnails:
+        paths = api.search_thumbnails(t, a.thumbnails)
+        print(f"{len(paths)} thumbnails: {a.thumbnails}")
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="paramost", description="Start the SPHEREx Flipbook app (SPHEREx images "
                                 "from NASA's IRSA archive) or look after its cache.")
@@ -136,13 +190,37 @@ def main(argv=None):
                            "('frames': the cleaned, aligned frames; downloads are kept)")
     clear.add_argument("what", choices=["frames"], help="frames: the frame cache (frames_proc/)")
     clear.add_argument("--cache-dir", dest="sub_cache_dir", help="cache folder to clear in")
+    srch = sub.add_parser("search", help="blind search of a field for moving and changing sources "
+                          "(prints a table of candidates; not detections)")
+    srch.add_argument("target", help="a name or coordinates, as in the app")
+    srch.add_argument("--fov", type=float, default=10.0, help="field of view in arcmin, 1-10 (default 10)")
+    srch.add_argument("--detector", default=None, help="D1..D6 or combinations like D5+D6 (default D2)")
+    srch.add_argument("--wl", default=None, help="wavelength range in micron instead of a detector, e.g. 4.4-4.7")
+    srch.add_argument("--days", type=float, default=60, help="time step: 60 per visit (default), 30, 7")
+    srch.add_argument("--no-clip", action="store_true", help="plain average stacks: keeps fast movers and "
+                      "flares, but also single-frame defects")
+    srch.add_argument("--threshold", type=float, default=5.0, help="detection threshold in units of the "
+                      "background noise of the difference image (default 5; not a significance)")
+    srch.add_argument("--method", choices=["pairs", "minus_mean"], default="pairs")
+    srch.add_argument("--pairs", choices=["consecutive", "all"], default="consecutive")
+    srch.add_argument("--no-catalogues", action="store_true", help="skip Gaia DR3 and CatWISE2020")
+    srch.add_argument("--no-asteroids", action="store_true", help="skip SkyBoT (slow: seconds to a minute per visit)")
+    srch.add_argument("--offline", dest="search_offline", action="store_true",
+                      help="only images already downloaded")
+    srch.add_argument("--csv", help="also write the table to this CSV file")
+    srch.add_argument("--thumbnails", help="also write one PNG per candidate into this folder")
+    srch.add_argument("--cache-dir", dest="sub_cache_dir", help="cache folder to use")
     a = p.parse_args(argv)
+    if a.command == "search":
+        a.offline = a.offline or a.search_offline
 
     _use_cache_dir(getattr(a, "sub_cache_dir", None) or a.cache_dir)
     if a.command == "cache-info":
         return cache_info()
     if a.command == "cache-clear":
         return cache_clear(a.what)
+    if a.command == "search":
+        return search(a)
 
     env = dict(os.environ)
     env.setdefault("MPLBACKEND", "Agg")

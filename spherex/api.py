@@ -1041,3 +1041,106 @@ def flags_figure(text, detector="D2", visit=-1, frame=0):
                          n in BAD_FLAGS) for n, b in sorted(f["bits"].items(), key=lambda kv: kv[1])],
                   names=["flag", "bit", "percent_of_pixels", "masked"])
     return fig, table[table["percent_of_pixels"] > 0]
+
+
+# ------------------------------------------------------------------ 7. blind search
+SEARCH_COLUMNS = ["rank", "pair", "date_a", "date_b", "type", "ra", "dec", "peak_to_noise", "pm_arcsec_yr",
+                  "pm_pa_deg", "label", "nearest_match", "nearest_sep_arcsec", "chance_match", "change",
+                  "saturated", "release_boundary", "seen_in", "seen_possible", "verdict"]
+PEAK_TO_NOISE_NOTE = ("peak_to_noise: the residual's peak divided by the scatter of the blank parts of "
+                      "the difference image. A ranking score, not a significance: stars that did not change "
+                      "reach tens to hundreds.")
+SEARCH_NOTE = ("A candidate is a residual in the difference between two visits that survived the "
+               "artefact cuts. It is not a detection: 'unexplained' residuals are mostly artefacts, "
+               "and a 'known' label says only that a catalogue source lies close to it.")
+
+
+def find_movers(text, fov=10.0, detector="D2", wl=None, days=60, clip=True, threshold=5.0, method="pairs",
+                pairs="consecutive", catalogues=True, asteroids=True, keep_rejected=False, progress=None,
+                _with_epochs=False):
+    """Blind search of the field around a target or position for moving and changing sources,
+    without using where the target is -> astropy Table, one row per candidate, ranked by
+    peak_to_noise (highest first). Columns (SEARCH_COLUMNS):
+      rank, pair ('0-1' = visits 0 and 1 of epochs(text, detector, fov, days=days)), date_a, date_b,
+      type ('mover' = a dipole or a saturated star that moved, 'variable' = a change at one place
+      in more than one pair, 'single' = a change seen once), ra, dec (in the later visit),
+      peak_to_noise (ranking score, not a significance: the smoothed residual's peak divided by the
+      scatter of the blank parts of the difference image; see search.detect_residuals), pm_arcsec_yr and pm_pa_deg
+      (movers: implied motion from the centroid shift and its direction east of north), label
+      ('known star', 'known infrared source', 'known asteroid', 'unexplained'), nearest_match and
+      nearest_sep_arcsec (nearest Gaia DR3 or CatWISE2020 source, at the visit's date),
+      chance_match, change (residual / star under it), saturated, release_boundary (the two visits
+      are from different data releases), seen_in / seen_possible, verdict (one sentence).
+    table.meta: 'note' (SEARCH_NOTE), 'cuts' (how many residuals each artefact cut removed),
+    'catalogues' (asked, failed, chance-match probabilities, counts per label), 'settings'.
+    Settings: fov in arcmin (1-10), detector or wl (as epochs), days (time step), clip (sigma-
+    clipped stacks; False keeps fast movers and flares but also single-frame defects), threshold
+    (detection threshold in units of that background noise), method ('pairs' or 'minus_mean'), pairs ('consecutive' or 'all'),
+    catalogues (Gaia DR3 + CatWISE2020), asteroids (SkyBoT, slow: seconds to a minute per visit),
+    keep_rejected (True: also the residuals the cuts removed, with their cut, as table.meta['rejected']).
+    Needs at least 2 pictures. progress: the stacking stages (if not in memory), then 'measuring'
+    once per difference image, then 'searching the archive' once per catalogue and visit."""
+    from . import search
+    if method not in ("pairs", "minus_mean"):
+        raise ValueError("method must be 'pairs' or 'minus_mean'.")
+    if pairs not in ("consecutive", "all"):
+        raise ValueError("pairs must be 'consecutive' or 'all'.")
+    target, frames, eps = _epochs(text, detector, fov, wl, days, clip, progress)
+    if len(eps) < 2:
+        raise ValueError(f"A search needs at least 2 pictures; '{text}' has {plural(len(eps), 'picture')} "
+                         "with these settings.")
+    images = search.residual_images(eps, method, pairs)
+    report(progress, MEASURING, 0, len(images) + 1)
+    residuals = search.find_residuals(eps, threshold, method, pairs)
+    report(progress, MEASURING, len(images), len(images) + 1)
+    dets = str(eps[0]["detectors_used"]).split("+") if eps[0].get("detectors_used") else parse_detectors(detector)
+    size_deg = round(max(0.1, float(fov) / 60 * 1.5), 3)
+    paths = search.visit_paths(frames, target, eps, dets, size_deg, gap_days=min(30, days), max_len_days=days)
+    sat = None
+    if all(paths):                    # every visit's images on disk: saturation from their FLAGS
+        shape = eps[0]["image"].shape
+        sat = [search.saturation_map(p, eps[0]["wcs"], shape) for p in paths]
+    cut, summary = search.apply_cuts(residuals, eps, sat)
+    report(progress, MEASURING, len(images) + 1, len(images) + 1)
+    cands = search.classify(cut, eps)
+    cands, notes = search.crossmatch(cands, eps, gaia=catalogues, wise=catalogues, asteroids=asteroids,
+                                     progress=progress)
+    report(progress, DRAWING, 0, 1)
+    order = sorted(range(len(cands)), key=lambda i: (-float(cands["peak_to_noise"][i]), str(cands["pair"][i]),
+                                                     round(float(cands["x"][i]), 6), round(float(cands["y"][i]), 6)))
+    cands = cands[order] if len(cands) else cands
+    cands["rank"] = np.arange(1, len(cands) + 1)
+    g, w = np.asarray(cands["gaia_sep_arcsec"], float), np.asarray(cands["wise_sep_arcsec"], float)
+    use_g = np.nan_to_num(g, nan=np.inf) <= np.nan_to_num(w, nan=np.inf)
+    names = []
+    for i in range(len(cands)):
+        if not (np.isfinite(g[i]) or np.isfinite(w[i])):
+            names.append("")                                   # no catalogue answered
+        elif use_g[i]:
+            names.append(f"Gaia DR3 {cands['gaia_source_id'][i]}")
+        else:
+            names.append(f"CatWISE2020 {cands['wise_name'][i]}")
+    cands["nearest_match"] = names
+    cands["nearest_sep_arcsec"] = np.where(use_g, g, w)
+    cols = SEARCH_COLUMNS + [c for c in cands.colnames if c not in SEARCH_COLUMNS]
+    out = cands[cols]
+    out.meta = {"note": SEARCH_NOTE, "peak_to_noise": PEAK_TO_NOISE_NOTE, "cuts": summary, "catalogues": notes,
+                "settings": dict(text=text, fov=float(fov), detector=eps[0]["detector"], days=days, clip=bool(clip),
+                                 threshold=float(threshold), method=method, pairs=pairs, visits=len(eps),
+                                 dates=[e["date"] for e in eps], releases=[e.get("releases", "") for e in eps],
+                                 saturation_cut=sat is not None)}
+    if keep_rejected:
+        out.meta["rejected"] = cut[cut["cut"] != ""]
+    report(progress, DRAWING, 1, 1)
+    return (out, eps) if _with_epochs else out
+
+
+def search_thumbnails(table, out_dir, text=None, **settings):
+    """PNG per candidate of find_movers' table (earlier visit, later visit, difference) in out_dir
+    -> list of paths. Uses the same pictures as find_movers with table.meta['settings']."""
+    from . import search
+    s = dict(table.meta.get("settings", {}))
+    s.update(settings)
+    _, _, eps = _epochs(text or s["text"], s.get("detector", "D2"), s.get("fov", 10.0), None,
+                        s.get("days", 60), s.get("clip", True))
+    return search.save_thumbnails(table, eps, out_dir)
