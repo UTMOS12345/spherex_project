@@ -106,6 +106,8 @@ def add_arguments(p):
     p.add_argument("--partial", action="store_true", help="with --offline: make a product from the cached "
                    "images even when some are missing, marked partial in the summary")
     p.add_argument("--yes", "-y", action="store_true", help="download what is needed without asking")
+    p.add_argument("--refresh", action="store_true", help="search IRSA again first for new SPHEREx data "
+                   "(new releases, new visits); not with --offline")
     p.add_argument("--style", choices=["dark", "light"], default="dark", help="figure colours (default dark, as the app)")
     p.add_argument("--dpi", type=float, default=None, help="resolution of the PNG files (default: the figure's, "
                    "110 as in the app)")
@@ -542,6 +544,8 @@ def run(a):
     try:
         if a.partial and not offline:
             raise UsageError("--partial needs --offline (without it, missing images are downloaded)")
+        if a.refresh and offline:
+            raise UsageError("--refresh searches the archive: not with --offline")
         jobs = jobs_from_args(a)
         for _, o, _ in jobs:
             parse_products(o.products)
@@ -561,6 +565,8 @@ def run(a):
     for t in targets:
         try:
             t.resolve(api)
+            if a.refresh:
+                api.visits(t.text, refresh=True)
             count_missing(api, t, offline, a.partial)
         except Exception as e:
             t.error = _message(e)

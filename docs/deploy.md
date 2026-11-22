@@ -51,15 +51,17 @@ Until then, `app.py` at the root of the checkout forwards to `paramost/app.py`.
 Run from the checkout, with the server's environment:
 
 ```
-SPHEREX_DEMO=1 .venv/bin/python tools/prepare_demo.py --skip-explore    # video, difference, overlay, light curve, spectrum
-.venv/bin/python tools/make_gallery.py                                  # every other product, demo/STATUS.md, demo/index.html
+.venv/bin/python tools/prepare_demo.py            # download, then every product of the five targets
+.venv/bin/python tools/make_gallery.py            # rebuild docs/img/gallery from the cache
 ```
 
-`tools/prepare_demo.py` downloads what the five test targets need (`--refresh` searches IRSA
-for new data, `--all-frames` downloads every frame) and writes backup results to
-`SPHEREX_DEMO_DIR` (default `demo/`); `tools/make_gallery.py` writes every other product and
-`demo/index.html`, downloading what a product cannot do without; `tools/explore.py` writes
-extra products to `SPHEREX_OUT_DIR` (default `out/`). `tools/strip_psf.py IN OUT` makes slim
+Both are thin wrappers of `paramost render` (see the README). `tools/prepare_demo.py` downloads
+what the five test targets need (`--refresh` searches IRSA for new data first, `--only NAME`
+one target) and writes every product, with a `summary.json` of settings and warnings per target,
+to `SPHEREX_DEMO_DIR` (default `demo/`): `paramost render --targets demo/targets.txt --out demo
+--products all --yes`. `tools/make_gallery.py` rebuilds the docs gallery from the cache only:
+`paramost render --targets docs/gallery.txt --out docs/img/gallery --offline --no-timings`.
+`tools/explore.py` writes extra products to `SPHEREX_OUT_DIR` (default `out/`). `tools/strip_psf.py IN OUT` makes slim
 copies of old cutouts that still hold the PSF layer.
 
 ## Docker instead of systemd

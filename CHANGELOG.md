@@ -19,6 +19,13 @@
   (video, difference, light curve, spectrum) 34 s cold (no saved results, frame cache off),
   14 s warm, most of it the partial spectra, which are never saved. Targets run one after
   another; within a target the existing worker processes clean and align the frames.
+- **The docs gallery rebuilds with one command:** `python tools/make_gallery.py`, which is
+  `paramost render --targets docs/gallery.txt --out docs/img/gallery --offline --no-timings`.
+  `tools/prepare_demo.py` is now a thin wrapper too (`paramost render --products all --yes` on
+  the five test targets, `--refresh` and `--only` as before). Dropped with the old scripts:
+  `--all-frames`, the explore.py products (run `tools/explore.py` itself), and make_gallery's
+  band-difference, RGB, minus-mean and combined-detector pictures, its STATUS.md and
+  index.html (`summary.json` per target replaces them).
 - **Sky viewer works again during the CDS outage:** since about 2026-11-09 the CDS survey server
   (alasky) is down, which left the Aladin panel grey with no message. The panel now loads WISE,
   2MASS and DSS colour images from ESA, falls back to IRSA when no tile arrives within 10 s, and

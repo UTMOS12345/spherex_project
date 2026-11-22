@@ -251,3 +251,17 @@ def test_render_uses_the_api_only():
         elif isinstance(node, ast.Import):
             used |= {n.name for n in node.names if n.name.split(".")[0] == "spherex"}
     assert used == {"spherex.api", "spherex.set_style", "spherex.__version__", "spherex.progress.Estimate"}, used
+
+
+def test_docs_gallery_file():
+    """docs/gallery.txt (what tools/make_gallery.py renders) parses, one folder per target."""
+    import argparse
+    from pathlib import Path
+    gallery = Path(__file__).resolve().parent.parent / "docs" / "gallery.txt"
+    p = argparse.ArgumentParser()
+    render.add_arguments(p)
+    jobs = render.jobs_from_args(p.parse_args(["--targets", str(gallery), "--out", "docs/img/gallery"]))
+    assert [folder.name for _, _, folder in jobs] == ["barnard_s_star", "wise_0855", "epsilon_indi_b", "rw_aur",
+                                                      "r_draconis"]
+    assert {render.parse_products(o.products) for _, o, _ in jobs} == {("video", "difference", "light-curve",
+                                                                         "spectrum")}
