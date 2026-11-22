@@ -106,6 +106,8 @@ def add_arguments(p):
     p.add_argument("--partial", action="store_true", help="with --offline: make a product from the cached "
                    "images even when some are missing, marked partial in the summary")
     p.add_argument("--yes", "-y", action="store_true", help="download what is needed without asking")
+    p.add_argument("--search-asteroids", action="store_true", help="search: also ask SkyBoT for known asteroids "
+                   "(slow, seconds to a minute per visit, and not cached; not with --offline)")
     p.add_argument("--refresh", action="store_true", help="search IRSA again first for new SPHEREx data "
                    "(new releases, new visits); not with --offline")
     p.add_argument("--style", choices=["dark", "light"], default="dark", help="figure colours (default dark, as the app)")
@@ -349,7 +351,9 @@ def make_product(api, t, product, progress):
     if product == "search":
         if not _search_available():
             raise ValueError("this version of spherex has no blind search (spherex.api.find_movers)")
-        table = api.find_movers(t.text, progress=progress, **pic)
+        # SkyBoT answers are not cached: only when asked, so an offline render stays offline
+        table = api.find_movers(t.text, asteroids=bool(getattr(o, "search_asteroids", False)), progress=progress,
+                                **pic)
         meta = dict(table.meta)
         warnings = list(_picture_warnings(api, t, product))
         failed = meta.get("catalogues", {}).get("failed")
@@ -544,6 +548,8 @@ def run(a):
     try:
         if a.partial and not offline:
             raise UsageError("--partial needs --offline (without it, missing images are downloaded)")
+        if getattr(a, "search_asteroids", False) and offline:
+            raise UsageError("--search-asteroids asks SkyBoT (not cached): not with --offline")
         if a.refresh and offline:
             raise UsageError("--refresh searches the archive: not with --offline")
         jobs = jobs_from_args(a)
