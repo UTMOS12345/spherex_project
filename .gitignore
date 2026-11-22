@@ -28,3 +28,6 @@ runtime/
 
 # OS
 .DS_Store
+
+# local instructions for Claude Code: not part of the repository
+CLAUDE.md
