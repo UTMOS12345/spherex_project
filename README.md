@@ -82,7 +82,9 @@ line, optionally followed by `|` and that target's options (`WISE 0855 | --detec
 `--offline` uses only the cache and fails a product when any image it needs is missing
 (`--partial` makes it from the cached images instead, marked as partial); otherwise the number of
 images to download is printed first and `--yes` is needed to go ahead unattended. The exit
-code is 0 only when every requested product was made. `paramost render --help` lists the rest.
+code is 0 only when every requested product was made. With unchanged inputs a rebuild writes
+byte-identical files (`--no-timings` keeps the timings out of `summary.json` too).
+`paramost render --help` lists the rest.
 
 ### If install fails
 

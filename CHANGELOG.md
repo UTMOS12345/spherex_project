@@ -10,6 +10,10 @@
   (`--partial` makes it from what is cached, marked as such); without it the number of images
   to download and the time are shown first, and `--yes` goes ahead unattended. Terminal progress
   per target and product; exit code 0 only when everything requested was made.
+- **Byte-identical renders:** `paramost render` writes no metadata that changes between runs:
+  PNGs carry no text chunks (matplotlib's only one is its version; PNG has no creation date),
+  CSVs no table meta, and `--no-timings` leaves the timings out of `summary.json`. Two runs
+  with unchanged inputs give identical files, so the gallery in git does not churn.
 - **Sky viewer works again during the CDS outage:** since about 2026-11-09 the CDS survey server
   (alasky) is down, which left the Aladin panel grey with no message. The panel now loads WISE,
   2MASS and DSS colour images from ESA, falls back to IRSA when no tile arrives within 10 s, and

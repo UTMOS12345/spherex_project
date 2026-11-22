@@ -203,3 +203,36 @@ def test_targets_run_one_after_another(fake_api, tmp_path):
     assert sorted(p.name for p in out.iterdir()) == ["rw_aur", "wise_0855"]
     assert _summary(out / "rw_aur")["products_made"] == ["video"]
     assert _summary(out / "wise_0855")["products_made"] == ["video", "deep"]
+
+
+# ------------------------------------------------------------------ byte-identical output
+def _png_chunks(data):
+    import struct
+    i, out = 8, []
+    while i < len(data):
+        n, = struct.unpack(">I", data[i:i + 4])
+        out.append(data[i + 4:i + 8].decode())
+        i += 12 + n
+    return out
+
+
+def test_png_has_no_text_metadata(tmp_path):
+    render.write_file(tmp_path / "a.png", _fig(0.5))
+    chunks = _png_chunks((tmp_path / "a.png").read_bytes())
+    assert "tEXt" not in chunks and "iTXt" not in chunks and "tIME" not in chunks, chunks
+
+
+def test_same_inputs_same_bytes(fake_api, tmp_path, monkeypatch):
+    """Two runs with unchanged inputs (and --no-timings) write byte-identical files, even
+    when the clock and the matplotlib version string differ between them."""
+    import time as _time
+    args = ["--offline", "--no-timings", "--products", "video,difference,overlay,light-curve,spectrum,deep,flags"]
+    assert main(["render", "WISE 0855", "--out", str(tmp_path / "a"), *args]) == 0
+    real = _time.time
+    monkeypatch.setattr(_time, "time", lambda: real() + 86400 * 400)          # a year later
+    monkeypatch.setattr(matplotlib, "__version__", "9.9.9")
+    assert main(["render", "WISE 0855", "--out", str(tmp_path / "b"), *args]) == 0
+    a = {p.name: p.read_bytes() for p in (tmp_path / "a").iterdir()}
+    b = {p.name: p.read_bytes() for p in (tmp_path / "b").iterdir()}
+    assert a.keys() == b.keys() and len(a) == 11
+    assert [k for k in a if a[k] != b[k]] == []

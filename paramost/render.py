@@ -54,6 +54,10 @@ FILES = {                                   # product -> the files it writes (se
     "search": ["search.csv"],
 }
 SUMMARY = "summary.json"
+# PNG text chunks matplotlib would write: only "Software" (its version) today; PNG gets no
+# creation date (PDF/SVG/PS do). None drops a key, so a rebuild on another matplotlib version
+# does not change files whose pixels are the same. GIFs (Pillow) carry no metadata.
+PNG_METADATA = {"Software": None}
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_NOT_CONFIRMED = 0, 1, 2, 3
 
 
@@ -386,7 +390,9 @@ def _table_warnings(table):
 
 
 def write_file(path, obj, dpi=None):
-    """Write a figure (PNG; closed afterwards), GIF bytes, or a table (CSV, without its meta)."""
+    """Write a figure (PNG; closed afterwards), GIF bytes, or a table (CSV, without its meta).
+    Nothing that changes between runs is written: no timestamps or versions in the PNG, no meta
+    in the CSV, so unchanged inputs give byte-identical files."""
     import matplotlib.pyplot as plt
     from astropy.table import Table
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -398,7 +404,7 @@ def write_file(path, obj, dpi=None):
         out.write(path, format="ascii.csv", overwrite=True)
     else:
         try:
-            obj.savefig(path, format="png", dpi=dpi or "figure", bbox_inches="tight")
+            obj.savefig(path, format="png", dpi=dpi or "figure", bbox_inches="tight", metadata=PNG_METADATA)
         finally:
             plt.close(obj)
 
