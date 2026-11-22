@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **`paramost render`: batch rendering from the command line.** One target or a targets file
+  (one per line, with optional per-line options); products video (GIF), difference, overlay,
+  light-curve, spectrum, deep, flags, or `all`, written as PNG/GIF, tables also as CSV, and a
+  `summary.json` per target with the settings, the products made, timings and every warning the
+  api returned. `--offline` fails a product clearly when any image it needs is not cached
+  (`--partial` makes it from what is cached, marked as such); without it the number of images
+  to download and the time are shown first, and `--yes` goes ahead unattended. Terminal progress
+  per target and product; exit code 0 only when everything requested was made.
 - **Sky viewer works again during the CDS outage:** since about 2026-11-09 the CDS survey server
   (alasky) is down, which left the Aladin panel grey with no message. The panel now loads WISE,
   2MASS and DSS colour images from ESA, falls back to IRSA when no tile arrives within 10 s, and
