@@ -493,8 +493,10 @@ def write_summary(api, t, seconds, timings):
         "products_made": [p for p, r in t.results.items() if r["status"] == "made"],
         "products_partial": [p for p, r in t.results.items() if r.get("partial")],
         "products_failed": {p: r["error"] for p, r in t.results.items() if r["status"] != "made"},
-        "downloads": [{"call": k[0], "missing": v[0], "total": v[1]} for k, v in t.missing.items()
-                      if not isinstance(v, Exception)],
+        # images not in the cache per api call. Not the totals: a saved result answers the
+        # count with 0 of 0, so they would differ between a cold and a warm run.
+        "images_missing": [{"call": k[0], "missing": v[0]} for k, v in t.missing.items()
+                           if not isinstance(v, Exception)],
         "warnings": [{"product": p, "warning": w} for p, r in t.results.items() for w in r["warnings"]],
         "products": t.results,
     }

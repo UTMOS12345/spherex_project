@@ -14,6 +14,11 @@
   PNGs carry no text chunks (matplotlib's only one is its version; PNG has no creation date),
   CSVs no table meta, and `--no-timings` leaves the timings out of `summary.json`. Two runs
   with unchanged inputs give identical files, so the gallery in git does not churn.
+- **`paramost render` reuses the app's caches:** every product comes from `spherex.api`, so the
+  frame cache and the saved results make a second run fast: the five-target docs gallery
+  (video, difference, light curve, spectrum) 34 s cold (no saved results, frame cache off),
+  14 s warm, most of it the partial spectra, which are never saved. Targets run one after
+  another; within a target the existing worker processes clean and align the frames.
 - **Sky viewer works again during the CDS outage:** since about 2026-11-09 the CDS survey server
   (alasky) is down, which left the Aladin panel grey with no message. The panel now loads WISE,
   2MASS and DSS colour images from ESA, falls back to IRSA when no tile arrives within 10 s, and

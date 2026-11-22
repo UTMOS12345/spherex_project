@@ -236,3 +236,18 @@ def test_same_inputs_same_bytes(fake_api, tmp_path, monkeypatch):
     b = {p.name: p.read_bytes() for p in (tmp_path / "b").iterdir()}
     assert a.keys() == b.keys() and len(a) == 11
     assert [k for k in a if a[k] != b[k]] == []
+
+
+# ------------------------------------------------------------------ reuse, don't duplicate
+def test_render_uses_the_api_only():
+    """paramost/render.py makes nothing itself: the only spherex imports are the api, the
+    style, the version and the progress estimate (no stacking, drawing or downloading)."""
+    import ast
+    tree = ast.parse(open(render.__file__, encoding="utf-8").read())
+    used = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] == "spherex":
+            used |= {f"{node.module}.{n.name}" for n in node.names}
+        elif isinstance(node, ast.Import):
+            used |= {n.name for n in node.names if n.name.split(".")[0] == "spherex"}
+    assert used == {"spherex.api", "spherex.set_style", "spherex.__version__", "spherex.progress.Estimate"}, used
