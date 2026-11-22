@@ -6,6 +6,9 @@
     paramost --cache-dir D:\\spherex   use another cache folder (default: the user cache folder)
     paramost cache-info               where the cache is, its size, which targets are in it
     paramost cache-clear frames       delete the frame cache only (downloads are kept)
+    paramost render "WISE 0855" --out wise0855/ --products video,spectrum
+    paramost render --targets targets.txt --out gallery/ --offline
+                                      the app's products as files (PNG, GIF, CSV, summary.json)
     paramost --version
 
 Also `python -m paramost ...` (works from a source checkout without installing).
@@ -136,6 +139,11 @@ def main(argv=None):
                            "('frames': the cleaned, aligned frames; downloads are kept)")
     clear.add_argument("what", choices=["frames"], help="frames: the frame cache (frames_proc/)")
     clear.add_argument("--cache-dir", dest="sub_cache_dir", help="cache folder to clear in")
+    from . import render
+    rend = sub.add_parser("render", help="write the app's products to files (PNG, GIF, CSV and a JSON "
+                          "summary with every warning), for one target or a list",
+                          description=render.__doc__.split("\n\n")[0])
+    render.add_arguments(rend)
     a = p.parse_args(argv)
 
     _use_cache_dir(getattr(a, "sub_cache_dir", None) or a.cache_dir)
@@ -143,6 +151,11 @@ def main(argv=None):
         return cache_info()
     if a.command == "cache-clear":
         return cache_clear(a.what)
+    if a.command == "render":
+        os.environ.setdefault("MPLBACKEND", "Agg")
+        if a.offline or a.render_offline:
+            os.environ["SPHEREX_DEMO"] = "1"
+        return render.run(a)
 
     env = dict(os.environ)
     env.setdefault("MPLBACKEND", "Agg")

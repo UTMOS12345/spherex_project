@@ -65,6 +65,27 @@ Options: `paramost --port 8502`, `--no-browser`, `--offline` (only data already 
 `paramost --version`. From a source checkout: `pip install -e ".[test]"` and
 `python -m paramost`.
 
+**Batch rendering, without the app:** `paramost render` writes the app's products to files
+(PNG or GIF; tables also as CSV) plus a `summary.json` per target with the settings, the
+products made, the timings and every warning (saturation, neighbours, few frames, mixed
+releases):
+
+```
+paramost render "WISE 0855" --detector D6 --fov 4 --out wise0855/ \
+    --products video,difference,overlay,light-curve,spectrum
+paramost render --targets targets.txt --out gallery/ --offline
+```
+
+Products: `video`, `difference`, `overlay`, `light-curve`, `spectrum`, `deep`, `flags` (and
+`search` where the blind search is installed), or `all`. A targets file has one target per
+line, optionally followed by `|` and that target's options (`WISE 0855 | --detector D6`).
+`--offline` uses only the cache and fails a product when any image it needs is missing
+(`--partial` makes it from the cached images instead, marked as partial); otherwise the number of
+images to download is printed first and `--yes` is needed to go ahead unattended. The exit
+code is 0 only when every requested product was made. With unchanged inputs a rebuild writes
+byte-identical files (`--no-timings` keeps the timings out of `summary.json` too).
+`paramost render --help` lists the rest.
+
 ### If install fails
 
 - **Python version.** CI tests Python 3.11 and 3.12. Installing and starting the app was also

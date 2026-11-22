@@ -117,6 +117,12 @@ failure, and identical files, and a healthy server still gets the full concurren
 
 ### 5. A scriptable CLI for batch rendering
 
+**In review:** `render-cli` branch (tag `before-render` marks the state before it):
+`paramost render` (`paramost/render.py`), docs/gallery.txt, and `tools/make_gallery.py` /
+`tools/prepare_demo.py` as thin wrappers. The gallery rebuilds with one command
+(`python tools/make_gallery.py`); offline, the spectra still need 391 images that are not in
+the cache.
+
 **Title:** `paramost render`: a scriptable command for batch rendering
 
 **Body:**

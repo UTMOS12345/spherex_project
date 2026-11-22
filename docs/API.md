@@ -407,6 +407,6 @@ Catch both: `except ValueError as e: st.warning(str(e))`, then `except Exception
 
 - Ship the `cache/` folder (frames, cutouts, gaia, wise) with the app: the five test targets then
   work without downloads.
-- `python tools/prepare_demo.py` fills it for the test targets; `api.visits(text, refresh=True)` picks up
+- `python tools/prepare_demo.py` (`paramost render ... --products all --yes`) fills it for the test targets; `api.visits(text, refresh=True)` picks up
   new SPHEREx releases.
 - URL parameters: `app_example.py` reads and writes `?target=WISE+0855&detector=D6&fov=6&view=video&mode=normal`.

@@ -1,0 +1,11 @@
+# The gallery of docs/index.html and README.md: docs/img/gallery/<target>/.
+# Rebuild it with one command (from the cache; nothing is downloaded):
+#   paramost render --targets docs/gallery.txt --out docs/img/gallery --offline --no-timings
+# or: python tools/make_gallery.py
+# One target per line; after "|" the options of `paramost render` for that target.
+# Detector and light-curve wavelength are each target's defaults (spherex.api.DEMO_DEFAULTS).
+Barnard's Star | --products video,difference,light-curve,spectrum --fps 2
+WISE 0855      | --products video,difference,light-curve,spectrum --fps 2
+Epsilon Indi B | --products video,difference,light-curve,spectrum --fps 2
+RW Aur         | --products video,difference,light-curve,spectrum --fps 2
+R Draconis     | --products video,difference,light-curve,spectrum --fps 2

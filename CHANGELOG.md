@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- **`paramost render`: batch rendering from the command line.** One target or a targets file
+  (one per line, with optional per-line options); products video (GIF), difference, overlay,
+  light-curve, spectrum, deep, flags, or `all`, written as PNG/GIF, tables also as CSV, and a
+  `summary.json` per target with the settings, the products made, timings and every warning the
+  api returned. `--offline` fails a product clearly when any image it needs is not cached
+  (`--partial` makes it from what is cached, marked as such); without it the number of images
+  to download and the time are shown first, and `--yes` goes ahead unattended. Terminal progress
+  per target and product; exit code 0 only when everything requested was made.
+- **Byte-identical renders:** `paramost render` writes no metadata that changes between runs:
+  PNGs carry no text chunks (matplotlib's only one is its version; PNG has no creation date),
+  CSVs no table meta, and `--no-timings` leaves the timings out of `summary.json`. Two runs
+  with unchanged inputs give identical files, so the gallery in git does not churn.
+- **`paramost render` reuses the app's caches:** every product comes from `spherex.api`, so the
+  frame cache and the saved results make a second run fast: the five-target docs gallery
+  (video, difference, light curve, spectrum) 34 s cold (no saved results, frame cache off),
+  14 s warm, most of it the partial spectra, which are never saved. Targets run one after
+  another; within a target the existing worker processes clean and align the frames.
+- **The docs gallery rebuilds with one command:** `python tools/make_gallery.py`, which is
+  `paramost render --targets docs/gallery.txt --out docs/img/gallery --offline --no-timings`.
+  `tools/prepare_demo.py` is now a thin wrapper too (`paramost render --products all --yes` on
+  the five test targets, `--refresh` and `--only` as before). Dropped with the old scripts:
+  `--all-frames`, the explore.py products (run `tools/explore.py` itself), and make_gallery's
+  band-difference, RGB, minus-mean and combined-detector pictures, its STATUS.md and
+  index.html (`summary.json` per target replaces them).
 - **Sky viewer works again during the CDS outage:** since about 2026-11-09 the CDS survey server
   (alasky) is down, which left the Aladin panel grey with no message. The panel now loads WISE,
   2MASS and DSS colour images from ESA, falls back to IRSA when no tile arrives within 10 s, and
